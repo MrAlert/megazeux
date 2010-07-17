@@ -104,6 +104,22 @@ typedef enum
 #undef CONDITION
 #endif
 
+#ifdef CONFIG_DOS
+#include <math.h>
+static inline float asinf (float x)
+{
+  return asin(x);
+}
+static inline float acosf (float x)
+{
+  return acos(x);
+}
+static inline float atan2f (float y, float x)
+{
+  return atan2(y, x);
+}
+#endif
+
 #ifndef MAX_PATH
 #define MAX_PATH 512
 #endif
