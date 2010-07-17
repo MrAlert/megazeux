@@ -1,6 +1,5 @@
 /* MegaZeux
  *
- * Copyright (C) 1996 Greg Janson
  * Copyright (C) 2010 Alan Williams <mralert@gmail.com>
  *
  * This program is free software; you can redistribute it and/or
@@ -18,21 +17,23 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
-#include "event.h"
+#ifndef __PLATFORM_DOS_H
+#define __PLATFORM_DOS_H
 
-bool __update_event_status(void)
+enum
 {
-  return false;
-}
+  DISPLAY_ADAPTER_NONE,
+  DISPLAY_ADAPTER_MDA,
+  DISPLAY_ADAPTER_CGA,
+  DISPLAY_ADAPTER_EGA_MONO,
+  DISPLAY_ADAPTER_EGA_COLOR,
+  DISPLAY_ADAPTER_VGA_MONO,
+  DISPLAY_ADAPTER_VGA_COLOR,
+  DISPLAY_ADAPTER_MCGA_MONO,
+  DISPLAY_ADAPTER_MCGA_COLOR
+};
 
-void __wait_event(void)
-{
-}
+extern const char *disp_names[];
+int detect_graphics(void);
 
-void real_warp_mouse(Uint32 x, Uint32 y)
-{
-}
-
-void initialize_joysticks(void)
-{
-}
+#endif // __PLATFORM_DOS_H
