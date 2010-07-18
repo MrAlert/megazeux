@@ -162,10 +162,12 @@ bool platform_init(void)
     return false;
 
 #ifdef CONFIG_SET_TIMER
+  _disable();
   // Counter 0, read lsb-msb
   outp(0x43, 0x34);
   outp(0x40, tick_count & 0xFF);
   outp(0x40, tick_count >> 8);
+  _enable();
 #endif
   delay(1000);
   return true;
@@ -176,10 +178,12 @@ void platform_quit(void)
   union REGS reg;
 
 #ifdef CONFIG_SET_TIMER
+  _disable();
   // Counter 0, read lsb-msb
   outp(0x43, 0x34);
   outp(0x40, tick_normal & 0xFF);
   outp(0x40, tick_normal >> 8);
+  _enable();
 #endif
 
   // DPMI set protected mode vector
