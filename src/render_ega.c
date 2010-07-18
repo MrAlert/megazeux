@@ -397,13 +397,67 @@ static void ega_render_graph(struct graphics_data *graphics)
 static void ega_render_cursor(struct graphics_data *graphics,
  Uint32 x, Uint32 y, Uint8 color, Uint8 lines, Uint8 offset)
 {
-  // FIXME: Implement cursor
+  struct ega_render_data *render_data = (void *)&graphics->render_data;
+  Uint8 *start = ega_fb[render_data->page];
+  Uint8 *dest;
+  int plane, i;
+
+  start += x;
+  start += y * 14 * 80;
+  start += offset * 80;
+
+  if(render_data->smzx)
+  {
+    for(plane = 0; plane < 4; plane++)
+    {
+      ega_set_plane(plane);
+      dest = start;
+      for(i = 0; i < lines; i++)
+      {
+        *dest = color;
+        dest += 80;
+      }
+    }
+  }
+  else
+  {
+    for(plane = 0; plane < 4; plane++)
+    {
+      ega_set_plane(plane);
+      dest = start;
+      for(i = 0; i < lines; i++)
+      {
+        if(color & (1 << plane))
+          *dest = 0xFF;
+        else
+          *dest = 0x00;
+        dest += 80;
+      }
+    }
+  }
 }
 
 static void ega_render_mouse(struct graphics_data *graphics,
  Uint32 x, Uint32 y, Uint8 w, Uint8 h)
 {
-  // FIXME: Implement mouse
+  struct ega_render_data *render_data = (void *)&graphics->render_data;
+  Uint8 *start = ega_fb[render_data->page];
+  Uint8 *dest;
+  int plane, i;
+
+  start += x / 8;
+  start += y * 80;
+
+  for(plane = 0; plane < 4; plane++)
+  {
+    ega_set_plane(plane);
+    dest = start;
+    for(i = 0; i < h; i++)
+    {
+      *dest ^= 0xFF;
+      dest += 80;
+    }
+  }
 }
 
 static void ega_sync_screen(struct graphics_data *graphics)
