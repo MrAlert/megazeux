@@ -18,12 +18,9 @@
 
 _DATA	SEGMENT	BYTE PUBLIC USE32 'DATA'
 	; Defined in platform.c
-	EXTERN	_ticks:DWORD
-	EXTERN	_tick_offset:DWORD
-	EXTERN	_tick_oldhandler:FWORD
-	EXTERN	_tick_len:DWORD
-	EXTERN	_tick_count:DWORD
-	EXTERN	_tick_normal:DWORD
+	EXTERN	_keyboard_buffer:BYTE
+	EXTERN	_keyboard_read:BYTE
+	EXTERN	_keyboard_write:BYTE
 _DATA	ENDS
 
 DGROUP GROUP _DATA
@@ -31,43 +28,38 @@ DGROUP GROUP _DATA
 _TEXT	SEGMENT	BYTE PUBLIC USE32 'CODE'
 	ASSUME	cs:_TEXT
 
-	PUBLIC	tick_handler_
-tick_handler_:
-	push	ax
-	push	eax
-	push	ebp
-	mov	ebp, esp			; [ebp+4] points to retf ptr
+	PUBLIC	keyboard_handler_
+keyboard_handler_:
 	push	ds
 	push	ebx
 	mov	bx, DGROUP
 	mov	ds, bx
-	mov	ebx, [_tick_len]
-	add	[_ticks], ebx			; ticks += tick_len;
-	mov	ebx, [_tick_offset]
-	add	[_tick_count], ebx		; tick_offset += tick_count;
-	cmp	ebx, [_tick_normal]		; if(tick_count >= tick_normal)
-	jae	chain_time			;   goto chain_time;
-	mov	[_tick_offset], ebx
-	pop	ebx
-	pop	ds
-	pop	ebp
+	push	eax
+key_loop:
+	in	al, 60h				; Get scan code
+	xor	ebx, ebx
+	mov	bl, [_keyboard_write]
+	mov	bh, [_keyboard_read]
+	inc	bl
+	cmp	bl, bh
+	je	discard_key
+	dec	bl
+	xor	bh, bh
+	mov	[ebx+_keyboard_buffer], al
+	inc	[_keyboard_write]
+discard_key:
+	in	al, 61h
+	or	al, 80h
+	out	61h, al
+	and	al, 7Fh
+	out	61h, al
 	mov	al, 020h
 	out	020h, al			; Send EOI to 8259 PIC
 	pop	eax
-	pop	ax
-	iretd					; return;
-chain_time:
-	sub	ebx, [_tick_normal]		; tick_offset -= tick_normal;
-	mov	[_tick_offset], ebx
-	mov	ebx, DWORD PTR [_tick_oldhandler]
-	mov	[ebp+4], ebx
-	mov	bx, WORD PTR [_tick_oldhandler+4]
-	mov	[ebp+8], bx			; put tick_oldhander on stack
 	pop	ebx
 	pop	ds
-	pop	ebp				; jump to function pointer on
-	retf					; stack using retf
-	PUBLIC tick_handler_end_
-tick_handler_end_:
+	iretd
+	PUBLIC keyboard_handler_end_
+keyboard_handler_end_:
 _TEXT	ENDS
 	END

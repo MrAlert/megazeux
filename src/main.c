@@ -163,6 +163,7 @@ __libspec int main(int argc, char *argv[])
 #endif
 
   quit_audio();
+  quit_video();
 
   err = 0;
 err_network_layer_exit:

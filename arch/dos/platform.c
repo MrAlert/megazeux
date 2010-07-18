@@ -119,6 +119,32 @@ int lock_region(const volatile void *region, size_t length)
   return !reg.x.cflag;
 }
 
+void far *get_int_vector(int inter)
+{
+  union REGS reg;
+  struct SREGS sreg;
+
+  // DOS get vector
+  reg.x.eax = 0x3500 | (inter & 0xFF);
+  sreg.ds = sreg.es = 0;
+  int386x(0x21, &reg, &reg, &sreg);
+
+  return MK_FP(sreg.es, reg.x.ebx);
+}
+
+void set_int_vector(int inter, void far *vector)
+{
+  union REGS reg;
+  struct SREGS sreg;
+
+  // DOS set vector
+  reg.x.eax = 0x2500 | (inter & 0xFF);
+  reg.x.edx = FP_OFF(vector);
+  sreg.ds = FP_SEG(vector);
+  sreg.es = 0;
+  int386x(0x21, &reg, &reg, &sreg);
+}
+
 #define CONFIG_SET_TIMER
 
 #ifdef CONFIG_SET_TIMER
@@ -157,10 +183,6 @@ Uint32 get_ticks(void)
 
 bool platform_init(void)
 {
-  union REGS reg;
-  struct SREGS sreg;
-  void far *handler_ptr;
-
   if(!lock_region(&ticks, sizeof(ticks)))
     return false;
   if(!lock_region(&tick_offset, sizeof(tick_offset)))
@@ -177,23 +199,9 @@ bool platform_init(void)
    (char *)tick_handler))
     return false;
 
-  // DOS get vector (IRQ0 - system timer)
-  reg.x.eax = 0x3508;
-  sreg.ds = sreg.es = 0;
-  int386x(0x21, &reg, &reg, &sreg);
-  tick_oldhandler = MK_FP(sreg.es, reg.x.ebx);
-
-  // DOS set vector
-  reg.x.eax = 0x2508;
-  handler_ptr = (void far *)tick_handler;
-  reg.x.edx = FP_OFF(handler_ptr);
-  sreg.ds = FP_SEG(handler_ptr);
-  sreg.es = 0;
-  int386x(0x21, &reg, &reg, &sreg);
-
-  // If carry flag set, then failed
-  if(reg.x.cflag & 0x01)
-    return false;
+  // IRQ0 - system timer
+  tick_oldhandler = get_int_vector(0x08);
+  set_int_vector(0x08, (void far *)tick_handler);
 
 #ifdef CONFIG_SET_TIMER
   _disable();
@@ -209,8 +217,6 @@ bool platform_init(void)
 
 void platform_quit(void)
 {
-  union REGS reg;
-
 #ifdef CONFIG_SET_TIMER
   _disable();
   // Counter 0, read lsb-msb
@@ -220,12 +226,5 @@ void platform_quit(void)
   _enable();
 #endif
 
-  // DPMI set protected mode vector
-  reg.x.eax = 0x0205;
-  reg.h.bl = 0x08;
-  reg.w.cx = FP_SEG(tick_oldhandler);
-  reg.x.edx = FP_OFF(tick_oldhandler);
-  int386(0x31, &reg, &reg);
-  // If it fails, I guess we just have to hope
-  // it doesn't explode when we exit
+  set_int_vector(0x08, (void far *)tick_oldhandler);
 }
