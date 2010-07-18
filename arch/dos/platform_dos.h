@@ -35,5 +35,6 @@ enum
 
 extern const char *disp_names[];
 int detect_graphics(void);
+int lock_region(const volatile void *region, size_t length);
 
 #endif // __PLATFORM_DOS_H

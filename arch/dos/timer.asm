@@ -69,5 +69,7 @@ chain_time:
 	pop	ds
 	pop	ebp				; jump to function pointer on
 	retf					; stack using retf
+	PUBLIC tick_handler_end_
+tick_handler_end_:
 _TEXT	ENDS
 	END

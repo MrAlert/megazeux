@@ -102,6 +102,23 @@ int detect_graphics(void)
   }
 }
 
+int lock_region(const volatile void *region, size_t length)
+{
+  union REGS reg;
+  unsigned int linear;
+
+  linear = (unsigned int)region;
+
+  // DPMI lock linear region
+  reg.w.ax = 0x600;
+  reg.w.bx = linear >> 16;
+  reg.w.cx = linear & 0xFFFF;
+  reg.w.si = length >> 16;
+  reg.w.di = length & 0xFFFF;
+  int386(0x31, &reg, &reg);
+  return !reg.x.cflag;
+}
+
 #define CONFIG_SET_TIMER
 
 #ifdef CONFIG_SET_TIMER
@@ -118,6 +135,7 @@ int detect_graphics(void)
 
 // Implemented in timer.asm
 void __interrupt tick_handler (void);
+void tick_handler_end (void);
 
 volatile Uint32 ticks = 0;
 volatile Uint32 tick_offset = 0;
@@ -140,22 +158,38 @@ Uint32 get_ticks(void)
 bool platform_init(void)
 {
   union REGS reg;
+  struct SREGS sreg;
   void far *handler_ptr;
 
-  // DPMI get protected mode vector
-  reg.x.eax = 0x0204;
-  // IRQ0 - system timer
-  reg.h.bl = 0x08;
-  int386(0x31, &reg, &reg);
-  tick_oldhandler = MK_FP(reg.w.cx, reg.x.edx);
+  if(!lock_region(&ticks, sizeof(ticks)))
+    return false;
+  if(!lock_region(&tick_offset, sizeof(tick_offset)))
+    return false;
+  if(!lock_region(&tick_oldhandler, sizeof(tick_oldhandler)))
+    return false;
+  if(!lock_region(&tick_len, sizeof(tick_len)))
+    return false;
+  if(!lock_region(&tick_count, sizeof(tick_count)))
+    return false;
+  if(!lock_region(&tick_normal, sizeof(tick_normal)))
+    return false;
+  if(!lock_region((void *)tick_handler, (char *)tick_handler_end -
+   (char *)tick_handler))
+    return false;
 
-  // DPMI set protected mode vector
-  reg.x.eax = 0x0205;
-  reg.h.bl = 0x08;
+  // DOS get vector (IRQ0 - system timer)
+  reg.x.eax = 0x3508;
+  sreg.ds = sreg.es = 0;
+  int386x(0x21, &reg, &reg, &sreg);
+  tick_oldhandler = MK_FP(sreg.es, reg.x.ebx);
+
+  // DOS set vector
+  reg.x.eax = 0x2508;
   handler_ptr = (void far *)tick_handler;
-  reg.w.cx = FP_SEG(handler_ptr);
   reg.x.edx = FP_OFF(handler_ptr);
-  int386(0x31, &reg, &reg);
+  sreg.ds = FP_SEG(handler_ptr);
+  sreg.es = 0;
+  int386x(0x21, &reg, &reg, &sreg);
 
   // If carry flag set, then failed
   if(reg.x.cflag & 0x01)
