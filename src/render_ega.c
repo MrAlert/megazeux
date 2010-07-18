@@ -26,7 +26,8 @@
 #include "platform_dos.h"
 #include "util.h"
 
-static Uint8 *ega_fb[2] = { (void *)0x000A0000, (void *)0x000A8000 };
+static Uint8 *const ega_fb[2] = { (void *)0x000A0000, (void *)0x000A8000 };
+static const Uint16 ega_addr[2] = { 0x0000, 0x8000 };
 
 struct ega_render_data
 {
@@ -166,12 +167,12 @@ static void ega_update_colors(struct graphics_data *graphics,
     inp(0x03DA);
     for(i = j = 0; i < 16 && j < count; i++, j += step)
     {
-      c = (palette[i].b >> 7) & 0x01;
-      c |= (palette[i].g >> 6) & 0x02;
-      c |= (palette[i].r >> 5) & 0x04;
-      c |= (palette[i].b >> 3) & 0x08;
-      c |= (palette[i].g >> 2) & 0x10;
-      c |= (palette[i].r >> 1) & 0x20;
+      c = (palette[j].b >> 7) & 0x01;
+      c |= (palette[j].g >> 6) & 0x02;
+      c |= (palette[j].r >> 5) & 0x04;
+      c |= (palette[j].b >> 3) & 0x08;
+      c |= (palette[j].g >> 2) & 0x10;
+      c |= (palette[j].r >> 1) & 0x20;
       outp(0x03C0, i);
       outp(0x03C0, c);
     }
@@ -199,7 +200,7 @@ static void ega_set_plane(int plane)
   outp(0x03CF, 0xFF);
 }
 
-static void ega_render_graph4(struct graphics_data *graphics, Uint8 *fb)
+static void ega_render_graph_mzx(struct graphics_data *graphics, Uint8 *fb)
 {
   struct char_element *src;
   Uint8 *dest, *ldest, *ldest2;
@@ -265,16 +266,132 @@ static void ega_render_graph4(struct graphics_data *graphics, Uint8 *fb)
   }
 }
 
+static void ega_render_graph_smzx(struct graphics_data *graphics, Uint8 *fb)
+{
+  struct char_element *src;
+  Uint8 *dest, *ldest, *ldest2;
+  Uint8 *char_ptr;
+  Uint8 bg, fg, char_colors[4];
+  int plane, x, y, i, shift;
+  for (plane = 0; plane < 4; plane++)
+  {
+    src = graphics->text_video;
+    dest = fb;
+    ega_set_plane(plane);
+    shift = (3 - plane) * 2;
+    for (y = 0; y < 25; y++)
+    {
+      ldest2 = dest;
+      for(x = 0; x < 80; x++)
+      {
+        bg = src->bg_color;
+        fg = src->fg_color;
+        char_colors[0] = (bg << 4) | bg;
+        char_colors[1] = (bg << 4) | fg;
+        char_colors[2] = (fg << 4) | bg;
+        char_colors[3] = (fg << 4) | fg;
+        ldest = dest;
+        char_ptr = graphics->charset + (src->char_value * 14);
+        for(i = 0; i < 14; i++)
+        {
+          *dest = char_colors[(*char_ptr >> shift) & 0x03];
+          dest += 80;
+          char_ptr++;
+        }
+        src++;
+        dest = ldest + 1;
+      }
+      dest = ldest2 + 80 * 14;
+    }
+  }
+}
+
+static void ega_render_graph_smzx3(struct graphics_data *graphics, Uint8 *fb)
+{
+  struct char_element *src;
+  Uint8 *dest, *ldest, *ldest2;
+  Uint8 *char_ptr;
+  Uint8 base, char_colors[4];
+  int plane, x, y, i, shift;
+  for (plane = 0; plane < 4; plane++)
+  {
+    src = graphics->text_video;
+    dest = fb;
+    ega_set_plane(plane);
+    shift = (3 - plane) * 2;
+    for (y = 0; y < 25; y++)
+    {
+      ldest2 = dest;
+      for(x = 0; x < 80; x++)
+      {
+        base = (src->bg_color << 4) | (src->fg_color & 0x0F);
+        char_colors[0] = base;
+        char_colors[1] = base + 2;
+        char_colors[2] = base + 1;
+        char_colors[3] = base + 3;
+        ldest = dest;
+        char_ptr = graphics->charset + (src->char_value * 14);
+        for(i = 0; i < 14; i++)
+        {
+          *dest = char_colors[(*char_ptr >> shift) & 0x03];
+          dest += 80;
+          char_ptr++;
+        }
+        src++;
+        dest = ldest + 1;
+      }
+      dest = ldest2 + 80 * 14;
+    }
+  }
+}
+
 static void ega_render_graph(struct graphics_data *graphics)
 {
   struct ega_render_data *render_data = (void *)&graphics->render_data;
 
   if(render_data->vga && graphics->screen_mode != render_data->smzx)
   {
-    // FIXME: Implement 256-color mode
+    // Go to 256-color mode from 16-color
+    if(graphics->screen_mode && !render_data->smzx)
+    {
+      ega_vsync();
+      // Enable 8-bit color
+      outp(0x3C0, 0x10);
+      outp(0x3C0, 0x41);
+      // Get attribute controller back to normal
+      outp(0x3C0, 0x20);
+      // Enable 256-color shift mode
+      outp(0x3CE, 0x05);
+      outp(0x3CF, 0x40);
+    }
+    // Go to 16-color mode from 256-color
+    if(!graphics->screen_mode && render_data->smzx)
+    {
+      ega_vsync();
+      // Disable 8-bit color
+      outp(0x3C0, 0x10);
+      outp(0x3C0, 0x01);
+      // Get attribute controller back to normal
+      outp(0x3C0, 0x20);
+      // Disable 256-color shift mode
+      outp(0x3CE, 0x05);
+      outp(0x3CF, 0x00);
+    }
     render_data->smzx = graphics->screen_mode;
   }
-  ega_render_graph4(graphics, ega_fb[render_data->page]);
+
+  switch(render_data->smzx)
+  {
+    case 0:
+      ega_render_graph_mzx(graphics, ega_fb[render_data->page]);
+      break;
+    case 3:
+      ega_render_graph_smzx3(graphics, ega_fb[render_data->page]);
+      break;
+    default:
+      ega_render_graph_smzx(graphics, ega_fb[render_data->page]);
+      break;
+  }
 }
 
 static void ega_render_cursor(struct graphics_data *graphics,
@@ -291,8 +408,13 @@ static void ega_render_mouse(struct graphics_data *graphics,
 
 static void ega_sync_screen(struct graphics_data *graphics)
 {
-  ega_vsync();
-  // FIXME: Implement page flipping
+  struct ega_render_data *render_data = (void *)&graphics->render_data;
+  // Flip pages
+  outp(0x3D4, 0x0C);
+  outp(0x3D5, ega_addr[render_data->page] >> 8);
+  outp(0x3D4, 0x0D);
+  outp(0x3D5, ega_addr[render_data->page] & 0xFF);
+  render_data->page = (render_data->page + 1) % 2;
 }
 
 void render_ega_register(struct renderer *renderer)
