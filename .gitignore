@@ -1,3 +1,10 @@
+arch/dos/*.err
+arch/dos/*.lk1
+arch/dos/*.map
+arch/dos/*.mk
+arch/dos/*.mk1
+arch/dos/*.obj
+arch/dos/*.sym
 arch/mingw/pefix.d
 arch/mingw/pefix.exe
 arch/mingw/pefix.o

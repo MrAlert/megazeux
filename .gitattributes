@@ -1,3 +1,5 @@
+arch/dos/*.tgt -crlf -diff
+arch/dos/*.wpj -crlf -diff
 docs/changelog.txt -crlf
 docs/cycles_and_commands.txt -crlf
 docs/idle_direction_oddities.txt -crlf
