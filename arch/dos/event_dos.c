@@ -18,114 +18,94 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
 // TODO: Implement mouse
-// TODO: Implement XT-to-keycode conversion better
-// TODO: Try to take advantage of the BIOS or something for ASCII codes rather
-// than trying to figure it out on our own
 
+#include <i86.h>
+#include <dos.h>
+#include <bios.h>
 #include "event.h"
 #include "graphics.h"
+#include "platform.h"
 #include "platform_dos.h"
 
 extern struct input_status input;
 
-static enum keycode convert_xt_internal(Uint32 key)
+static int keyboard_extended = 0;
+static const enum keycode xt_to_internal[0x80] =
 {
-  switch(key)
-  {
-    case 0x01: return IKEY_ESCAPE;
-    case 0x3B: return IKEY_F1;
-    case 0x3C: return IKEY_F2;
-    case 0x3D: return IKEY_F3;
-    case 0x3E: return IKEY_F4;
-    case 0x3F: return IKEY_F5;
-    case 0x40: return IKEY_F6;
-    case 0x41: return IKEY_F7;
-    case 0x42: return IKEY_F8;
-    case 0x43: return IKEY_F9;
-    case 0x44: return IKEY_F10;
-    case 0x57: return IKEY_F11;
-    case 0x58: return IKEY_F12;
-    case 0x29: return IKEY_BACKQUOTE;
-    case 0x02: return IKEY_1;
-    case 0x03: return IKEY_2;
-    case 0x04: return IKEY_3;
-    case 0x05: return IKEY_4;
-    case 0x06: return IKEY_5;
-    case 0x07: return IKEY_6;
-    case 0x08: return IKEY_7;
-    case 0x09: return IKEY_8;
-    case 0x0A: return IKEY_9;
-    case 0x0B: return IKEY_0;
-    case 0x0C: return IKEY_MINUS;
-    case 0x0D: return IKEY_EQUALS;
-    case 0x2B: return IKEY_BACKSLASH;
-    case 0x0E: return IKEY_BACKSPACE;
-    case 0x0F: return IKEY_TAB;
-    case 0x10: return IKEY_q;
-    case 0x11: return IKEY_w;
-    case 0x12: return IKEY_e;
-    case 0x13: return IKEY_r;
-    case 0x14: return IKEY_t;
-    case 0x15: return IKEY_y;
-    case 0x16: return IKEY_u;
-    case 0x17: return IKEY_i;
-    case 0x18: return IKEY_o;
-    case 0x19: return IKEY_p;
-    case 0x1A: return IKEY_LEFTBRACKET;
-    case 0x1B: return IKEY_RIGHTBRACKET;
-    case 0x3A: return IKEY_CAPSLOCK;
-    case 0x1E: return IKEY_a;
-    case 0x1F: return IKEY_s;
-    case 0x20: return IKEY_d;
-    case 0x21: return IKEY_f;
-    case 0x22: return IKEY_g;
-    case 0x23: return IKEY_h;
-    case 0x24: return IKEY_j;
-    case 0x25: return IKEY_k;
-    case 0x26: return IKEY_l;
-    case 0x27: return IKEY_SEMICOLON;
-    case 0x28: return IKEY_QUOTE;
-    case 0x1C: return IKEY_RETURN;
-    case 0x2A: return IKEY_LSHIFT;
-    case 0x2C: return IKEY_z;
-    case 0x2D: return IKEY_x;
-    case 0x2E: return IKEY_c;
-    case 0x2F: return IKEY_v;
-    case 0x30: return IKEY_b;
-    case 0x31: return IKEY_n;
-    case 0x32: return IKEY_m;
-    case 0x33: return IKEY_COMMA;
-    case 0x34: return IKEY_PERIOD;
-    case 0x35: return IKEY_SLASH;
-    case 0x36: return IKEY_RSHIFT;
-    case 0x1D: return IKEY_LCTRL;
-    case 0x5B: return IKEY_LSUPER;
-    case 0x38: return IKEY_LALT;
-    case 0x39: return IKEY_SPACE;
-    case 0x5C: return IKEY_RSUPER;
-    case 0x5D: return IKEY_MENU;
-    case 0x37: return IKEY_SYSREQ;
-    case 0x46: return IKEY_SCROLLOCK;
-    case 0xC5: return IKEY_BREAK;
-    case 0x52: return IKEY_INSERT;
-    case 0x47: return IKEY_HOME;
-    case 0x49: return IKEY_PAGEUP;
-    case 0x53: return IKEY_DELETE;
-    case 0x4F: return IKEY_END;
-    case 0x51: return IKEY_PAGEDOWN;
-    case 0x45: return IKEY_NUMLOCK;
-    case 0x4A: return IKEY_KP_MINUS;
-    case 0x48: return IKEY_UP;
-    case 0x4B: return IKEY_LEFT;
-    case 0x4C: return IKEY_KP5;
-    case 0x4D: return IKEY_RIGHT;
-    case 0x4E: return IKEY_KP_PLUS;
-    case 0x50: return IKEY_DOWN;
-    default: return IKEY_UNKNOWN;
-  }
+  // 0x
+  IKEY_UNKNOWN, IKEY_ESCAPE, IKEY_1, IKEY_2,
+  IKEY_3, IKEY_4, IKEY_5, IKEY_6,
+  IKEY_7, IKEY_8, IKEY_9, IKEY_0,
+  IKEY_MINUS, IKEY_EQUALS, IKEY_BACKSPACE, IKEY_TAB,
+  // 1x
+  IKEY_q, IKEY_w, IKEY_e, IKEY_r,
+  IKEY_t, IKEY_y, IKEY_u, IKEY_i,
+  IKEY_o, IKEY_p, IKEY_LEFTBRACKET, IKEY_RIGHTBRACKET,
+  IKEY_RETURN, IKEY_RCTRL, IKEY_a, IKEY_s,
+  // 2x
+  IKEY_d, IKEY_f, IKEY_g, IKEY_h,
+  IKEY_j, IKEY_k, IKEY_l, IKEY_SEMICOLON,
+  IKEY_QUOTE, IKEY_BACKQUOTE, IKEY_LSHIFT, IKEY_BACKSLASH,
+  IKEY_z, IKEY_x, IKEY_c, IKEY_v,
+  // 3x
+  IKEY_b, IKEY_n, IKEY_m, IKEY_COMMA,
+  IKEY_PERIOD, IKEY_SLASH, IKEY_RSHIFT, IKEY_KP_MULTIPLY,
+  IKEY_RALT, IKEY_SPACE, IKEY_CAPSLOCK, IKEY_F1,
+  IKEY_F2, IKEY_F3, IKEY_F4, IKEY_F5,
+  // 4x
+  IKEY_F6, IKEY_F7, IKEY_F8, IKEY_F9,
+  IKEY_F10, IKEY_NUMLOCK, IKEY_SCROLLOCK, IKEY_KP7,
+  IKEY_KP8, IKEY_KP9, IKEY_KP_MINUS, IKEY_KP4,
+  IKEY_KP5, IKEY_KP6, IKEY_KP_PLUS, IKEY_KP1,
+  // 5x
+  IKEY_KP2, IKEY_KP3, IKEY_KP0, IKEY_KP_PERIOD,
+  IKEY_SYSREQ, IKEY_UNKNOWN, IKEY_UNKNOWN, IKEY_F11,
+  IKEY_F12, IKEY_UNKNOWN
+};
+
+static const enum keycode extended_xt_to_internal[0x80] = {
+  // 0x
+  IKEY_UNKNOWN, IKEY_UNKNOWN, IKEY_UNKNOWN, IKEY_UNKNOWN,
+  IKEY_UNKNOWN, IKEY_UNKNOWN, IKEY_UNKNOWN, IKEY_UNKNOWN,
+  IKEY_UNKNOWN, IKEY_UNKNOWN, IKEY_UNKNOWN, IKEY_UNKNOWN,
+  IKEY_UNKNOWN, IKEY_UNKNOWN, IKEY_UNKNOWN, IKEY_UNKNOWN,
+  // 1x
+  IKEY_UNKNOWN, IKEY_UNKNOWN, IKEY_UNKNOWN, IKEY_UNKNOWN,
+  IKEY_UNKNOWN, IKEY_UNKNOWN, IKEY_UNKNOWN, IKEY_UNKNOWN,
+  IKEY_UNKNOWN, IKEY_UNKNOWN, IKEY_UNKNOWN, IKEY_UNKNOWN,
+  IKEY_KP_ENTER, IKEY_LCTRL, IKEY_UNKNOWN, IKEY_UNKNOWN,
+  // 2x
+  IKEY_UNKNOWN, IKEY_UNKNOWN, IKEY_UNKNOWN, IKEY_UNKNOWN,
+  IKEY_UNKNOWN, IKEY_UNKNOWN, IKEY_UNKNOWN, IKEY_UNKNOWN,
+  IKEY_UNKNOWN, IKEY_UNKNOWN, IKEY_UNKNOWN, IKEY_UNKNOWN,
+  IKEY_UNKNOWN, IKEY_UNKNOWN, IKEY_UNKNOWN, IKEY_UNKNOWN,
+  // 3x
+  IKEY_UNKNOWN, IKEY_UNKNOWN, IKEY_UNKNOWN, IKEY_UNKNOWN,
+  IKEY_UNKNOWN, IKEY_KP_DIVIDE, IKEY_UNKNOWN, IKEY_SYSREQ,
+  IKEY_LALT, IKEY_UNKNOWN, IKEY_UNKNOWN, IKEY_UNKNOWN,
+  IKEY_UNKNOWN, IKEY_UNKNOWN, IKEY_UNKNOWN, IKEY_UNKNOWN,
+  // 4x
+  IKEY_UNKNOWN, IKEY_UNKNOWN, IKEY_UNKNOWN, IKEY_UNKNOWN,
+  IKEY_UNKNOWN, IKEY_UNKNOWN, IKEY_BREAK, IKEY_HOME,
+  IKEY_UP, IKEY_PAGEUP, IKEY_UNKNOWN, IKEY_LEFT,
+  IKEY_UNKNOWN, IKEY_RIGHT, IKEY_UNKNOWN, IKEY_END,
+  // 5x
+  IKEY_DOWN, IKEY_PAGEDOWN, IKEY_INSERT, IKEY_DELETE,
+  IKEY_UNKNOWN, IKEY_UNKNOWN, IKEY_UNKNOWN, IKEY_UNKNOWN,
+  IKEY_UNKNOWN, IKEY_UNKNOWN, IKEY_UNKNOWN, IKEY_LSUPER,
+  IKEY_RSUPER, IKEY_MENU, IKEY_UNKNOWN
+};
+
+static enum keycode convert_xt_internal(Uint8 key)
+{
+  if(keyboard_extended)
+    return extended_xt_to_internal[key];
+  else
+    return xt_to_internal[key];
 }
 
 static int keyboard_init = 0;
+
 volatile Uint8 keyboard_buffer[256];
 volatile Uint8 keyboard_read = 0;
 volatile Uint8 keyboard_write = 0;
@@ -139,150 +119,112 @@ static int read_buffer(void)
   return ret;
 }
 
-#define UNICODE_SHIFT(A, B) \
-  ((status->keymap[IKEY_LSHIFT] || status->keymap[IKEY_RSHIFT]) ? B : A)
-#define UNICODE_CAPS(A, B) \
-  (status->caps_status ? UNICODE_SHIFT(B, A) : UNICODE_SHIFT(A, B))
-#define UNICODE_NUM(A, B) \
-  (status->numlock_status ? B : A)
-
-// TODO: Support non-US keyboard layouts
-static Uint32 convert_internal_unicode(struct buffered_status *status,
- enum keycode key)
+static Uint32 convert_xt_unicode(Uint8 key)
 {
-  switch(key)
+  static Uint16 xt_to_unicode[0x100] = {0};
+  unsigned short res;
+
+  while(_bios_keybrd(_KEYBRD_READY))
   {
-    case IKEY_SPACE: return ' ';
-    case IKEY_QUOTE: return UNICODE_SHIFT('\'', '"');
-    case IKEY_COMMA: return UNICODE_SHIFT(',', '<');
-    case IKEY_MINUS: return UNICODE_SHIFT('-', '_');
-    case IKEY_PERIOD: return UNICODE_SHIFT('.', '>');
-    case IKEY_SLASH: return UNICODE_SHIFT('/', '?');
-    case IKEY_0: return UNICODE_SHIFT('0', ')');
-    case IKEY_1: return UNICODE_SHIFT('1', '!');
-    case IKEY_2: return UNICODE_SHIFT('2', '@');
-    case IKEY_3: return UNICODE_SHIFT('3', '#');
-    case IKEY_4: return UNICODE_SHIFT('4', '$');
-    case IKEY_5: return UNICODE_SHIFT('5', '%');
-    case IKEY_6: return UNICODE_SHIFT('6', '^');
-    case IKEY_7: return UNICODE_SHIFT('7', '&');
-    case IKEY_8: return UNICODE_SHIFT('8', '*');
-    case IKEY_9: return UNICODE_SHIFT('9', '(');
-    case IKEY_SEMICOLON: return UNICODE_SHIFT(';', ':');
-    case IKEY_EQUALS: return UNICODE_SHIFT('=', '+');
-    case IKEY_LEFTBRACKET: return UNICODE_SHIFT('[', '{');
-    case IKEY_BACKSLASH: return UNICODE_SHIFT('\\', '|');
-    case IKEY_RIGHTBRACKET: return UNICODE_SHIFT(']', '}');
-    case IKEY_BACKQUOTE: return UNICODE_SHIFT('`', '~');
-    case IKEY_a: return UNICODE_CAPS('a', 'A');
-    case IKEY_b: return UNICODE_CAPS('b', 'B');
-    case IKEY_c: return UNICODE_CAPS('c', 'C');
-    case IKEY_d: return UNICODE_CAPS('d', 'D');
-    case IKEY_e: return UNICODE_CAPS('e', 'E');
-    case IKEY_f: return UNICODE_CAPS('f', 'F');
-    case IKEY_g: return UNICODE_CAPS('g', 'G');
-    case IKEY_h: return UNICODE_CAPS('h', 'H');
-    case IKEY_i: return UNICODE_CAPS('i', 'I');
-    case IKEY_j: return UNICODE_CAPS('j', 'J');
-    case IKEY_k: return UNICODE_CAPS('k', 'K');
-    case IKEY_l: return UNICODE_CAPS('l', 'L');
-    case IKEY_m: return UNICODE_CAPS('m', 'M');
-    case IKEY_n: return UNICODE_CAPS('n', 'N');
-    case IKEY_o: return UNICODE_CAPS('o', 'O');
-    case IKEY_p: return UNICODE_CAPS('p', 'P');
-    case IKEY_q: return UNICODE_CAPS('q', 'Q');
-    case IKEY_r: return UNICODE_CAPS('r', 'R');
-    case IKEY_s: return UNICODE_CAPS('s', 'S');
-    case IKEY_t: return UNICODE_CAPS('t', 'T');
-    case IKEY_u: return UNICODE_CAPS('u', 'U');
-    case IKEY_v: return UNICODE_CAPS('v', 'V');
-    case IKEY_w: return UNICODE_CAPS('w', 'W');
-    case IKEY_x: return UNICODE_CAPS('x', 'X');
-    case IKEY_y: return UNICODE_CAPS('y', 'Y');
-    case IKEY_z: return UNICODE_CAPS('z', 'Z');
-    case IKEY_KP0: return UNICODE_NUM(0, '0');
-    case IKEY_KP1: return UNICODE_NUM(0, '1');
-    case IKEY_KP2: return UNICODE_NUM(0, '2');
-    case IKEY_KP3: return UNICODE_NUM(0, '3');
-    case IKEY_KP4: return UNICODE_NUM(0, '4');
-    case IKEY_KP5: return UNICODE_NUM(0, '5');
-    case IKEY_KP6: return UNICODE_NUM(0, '6');
-    case IKEY_KP7: return UNICODE_NUM(0, '7');
-    case IKEY_KP8: return UNICODE_NUM(0, '8');
-    case IKEY_KP9: return UNICODE_NUM(0, '9');
-    case IKEY_KP_PERIOD: return UNICODE_NUM(0, '.');
-    case IKEY_KP_DIVIDE: return '/';
-    case IKEY_KP_MULTIPLY: return '*';
-    case IKEY_KP_MINUS: return '-';
-    case IKEY_KP_PLUS: return '+';
-    default: return 0;
+    res = _bios_keybrd(_KEYBRD_READ);
+    xt_to_unicode[res >> 8] = res & 0xFF;
   }
+
+  return xt_to_unicode[key];
 }
 
-static bool process_key(int key)
+static void update_lock_status(struct buffered_status *status)
+{
+  unsigned short res;
+  res = _bios_keybrd(_KEYBRD_SHIFTSTATUS);
+  status->numlock_status = !!(res & 0x20);
+  status->caps_status = !!(res & 0x40);
+}
+
+static bool process_keypress(int key)
 {
   struct buffered_status *status = store_status();
-  enum keycode ikey = convert_xt_internal(key & 0x7F);
+  enum keycode ikey = convert_xt_internal(key);
 
   if(!ikey)
     return false;
 
+  if((ikey == IKEY_CAPSLOCK) || (ikey == IKEY_NUMLOCK))
+    update_lock_status(status);
+
+  if((ikey == IKEY_RETURN) &&
+   get_alt_status(keycode_internal) &&
+   get_ctrl_status(keycode_internal))
+  {
+    toggle_fullscreen();
+    return true;
+  }
+
+  if(ikey == IKEY_F12)
+  {
+    dump_screen();
+    return true;
+  }
+
+  if(status->key_repeat &&
+   (status->key_repeat != IKEY_LSHIFT) &&
+   (status->key_repeat != IKEY_RSHIFT) &&
+   (status->key_repeat != IKEY_LALT) &&
+   (status->key_repeat != IKEY_RALT) &&
+   (status->key_repeat != IKEY_LCTRL) &&
+   (status->key_repeat != IKEY_RCTRL))
+  {
+    // Stack current repeat key if it isn't shift, alt, or ctrl
+    if(input.repeat_stack_pointer != KEY_REPEAT_STACK_SIZE)
+    {
+      input.key_repeat_stack[input.repeat_stack_pointer] =
+       status->key_repeat;
+      input.unicode_repeat_stack[input.repeat_stack_pointer] =
+       status->unicode_repeat;
+      input.repeat_stack_pointer++;
+    }
+  }
+
+  key_press(status, ikey, convert_xt_unicode(key));
+  return true;
+}
+
+static bool process_keyrelease(int key)
+{
+  struct buffered_status *status = store_status();
+  enum keycode ikey = convert_xt_internal(key);
+
+  if(!ikey)
+    return false;
+
+  status->keymap[ikey] = 0;
+  if(status->key_repeat == ikey)
+  {
+    status->key_repeat = IKEY_UNKNOWN;
+    status->unicode_repeat = 0;
+  }
+  status->key_release = ikey;
+  return true;
+}
+
+static bool process_key(int key)
+{
+  bool ret;
+
+  if(key == 0xE0)
+  {
+    keyboard_extended = 1;
+    return false;
+  }
+
   if(key & 0x80)
-  {
-    // Key release
-    status->keymap[ikey] = 0;
-    if(status->key_repeat == ikey)
-    {
-      status->key_repeat = IKEY_UNKNOWN;
-      status->unicode_repeat = 0;
-    }
-    status->key_release = ikey;
-    return true;
-  }
+    ret = process_keyrelease(key & 0x7F);
   else
-  {
-    // Key press
-    if(ikey == IKEY_NUMLOCK)
-      status->numlock_status ^= 1;
-    if(ikey == IKEY_CAPSLOCK)
-      status->caps_status ^= 1;
+    ret = process_keypress(key);
 
-    if((ikey == IKEY_RETURN) &&
-     get_alt_status(keycode_internal) &&
-     get_ctrl_status(keycode_internal))
-    {
-      toggle_fullscreen();
-      return true;
-    }
+  keyboard_extended = 0;
 
-    if(ikey == IKEY_F12)
-    {
-      dump_screen();
-      return true;
-    }
-
-    if(status->key_repeat &&
-     (status->key_repeat != IKEY_LSHIFT) &&
-     (status->key_repeat != IKEY_RSHIFT) &&
-     (status->key_repeat != IKEY_LALT) &&
-     (status->key_repeat != IKEY_RALT) &&
-     (status->key_repeat != IKEY_LCTRL) &&
-     (status->key_repeat != IKEY_RCTRL))
-    {
-      // Stack current repeat key if it isn't shift, alt, or ctrl
-      if(input.repeat_stack_pointer != KEY_REPEAT_STACK_SIZE)
-      {
-        input.key_repeat_stack[input.repeat_stack_pointer] =
-         status->key_repeat;
-        input.unicode_repeat_stack[input.repeat_stack_pointer] =
-         status->unicode_repeat;
-        input.repeat_stack_pointer++;
-      }
-    }
-
-    key_press(status, ikey, convert_internal_unicode(status, ikey));
-    return true;
-  }
+  return ret;
 }
 
 bool __update_event_status(void)
@@ -314,6 +256,7 @@ void real_warp_mouse(Uint32 x, Uint32 y)
 // Implemented in keyboard.asm
 void __interrupt keyboard_handler (void);
 void keyboard_handler_end (void);
+volatile void (__interrupt __far *keyboard_oldhandler)(void);
 
 void initialize_joysticks(void)
 {
@@ -330,6 +273,8 @@ void initialize_joysticks(void)
   // TODO: DOS/4GW probably resets the vectors on exit,
   // (protected mode vectors don't translate too well to real mode)
   // but we probably still want to do something about this.
-  set_int_vector(0x09, keyboard_handler);
+  keyboard_oldhandler = _dos_getvect(0x09);
+  _dos_setvect(0x09, keyboard_handler);
+  delay(1000);
   keyboard_init = 1;
 }

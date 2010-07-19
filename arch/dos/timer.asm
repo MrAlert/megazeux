@@ -33,10 +33,6 @@ _TEXT	SEGMENT	BYTE PUBLIC USE32 'CODE'
 
 	PUBLIC	tick_handler_
 tick_handler_:
-	push	ax
-	push	eax
-	push	ebp
-	mov	ebp, esp			; [ebp+4] points to retf ptr
 	push	ds
 	push	ebx
 	mov	bx, DGROUP
@@ -44,29 +40,25 @@ tick_handler_:
 	mov	ebx, [_tick_len]
 	add	[_ticks], ebx			; ticks += tick_len;
 	mov	ebx, [_tick_offset]
-	add	[_tick_count], ebx		; tick_offset += tick_count;
+	add	ebx, [_tick_count]		; tick_offset += tick_count;
 	cmp	ebx, [_tick_normal]		; if(tick_count >= tick_normal)
 	jae	chain_time			;   goto chain_time;
 	mov	[_tick_offset], ebx
 	pop	ebx
 	pop	ds
-	pop	ebp
+	push	ax
 	mov	al, 020h
 	out	020h, al			; Send EOI to 8259 PIC
-	pop	eax
 	pop	ax
 	iretd					; return;
 chain_time:
 	sub	ebx, [_tick_normal]		; tick_offset -= tick_normal;
 	mov	[_tick_offset], ebx
-	mov	ebx, DWORD PTR [_tick_oldhandler]
-	mov	[ebp+4], ebx
-	mov	bx, WORD PTR [_tick_oldhandler+4]
-	mov	[ebp+8], bx			; put tick_oldhander on stack
+	pushfd
+	call	fword ptr [_tick_oldhandler]
 	pop	ebx
 	pop	ds
-	pop	ebp				; jump to function pointer on
-	retf					; stack using retf
+	iretd
 	PUBLIC tick_handler_end_
 tick_handler_end_:
 _TEXT	ENDS

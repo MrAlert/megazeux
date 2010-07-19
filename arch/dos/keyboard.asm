@@ -21,9 +21,10 @@ _DATA	SEGMENT	BYTE PUBLIC USE32 'DATA'
 	EXTERN	_keyboard_buffer:BYTE
 	EXTERN	_keyboard_read:BYTE
 	EXTERN	_keyboard_write:BYTE
+	EXTERN	_keyboard_oldhandler:FWORD
 _DATA	ENDS
 
-DGROUP GROUP _DATA
+DGROUP	GROUP	_DATA
 
 _TEXT	SEGMENT	BYTE PUBLIC USE32 'CODE'
 	ASSUME	cs:_TEXT
@@ -35,26 +36,27 @@ keyboard_handler_:
 	mov	bx, DGROUP
 	mov	ds, bx
 	push	eax
-key_loop:
 	in	al, 60h				; Get scan code
 	xor	ebx, ebx
 	mov	bl, [_keyboard_write]
 	mov	bh, [_keyboard_read]
 	inc	bl
 	cmp	bl, bh
-	je	discard_key
+	je	full_buffer
 	dec	bl
 	xor	bh, bh
 	mov	[ebx+_keyboard_buffer], al
 	inc	[_keyboard_write]
-discard_key:
-	in	al, 61h
-	or	al, 80h
-	out	61h, al
-	and	al, 7Fh
-	out	61h, al
-	mov	al, 020h
-	out	020h, al			; Send EOI to 8259 PIC
+full_buffer:
+	;in	al, 61h
+	;or	al, 80h
+	;out	61h, al
+	;and	al, 7Fh
+	;out	61h, al
+	;mov	al, 020h
+	;out	020h, al
+	pushfd
+	call	fword ptr [_keyboard_oldhandler]
 	pop	eax
 	pop	ebx
 	pop	ds

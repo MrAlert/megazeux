@@ -20,10 +20,12 @@
 
 #include <i86.h>
 #include <conio.h>
+#include <dos.h>
 #include "platform.h"
 #include "platform_dos.h"
 
-static const int ps2_cards[] = {
+static const int ps2_cards[] =
+{
   DISPLAY_ADAPTER_NONE,
   DISPLAY_ADAPTER_MDA,
   DISPLAY_ADAPTER_CGA,
@@ -39,7 +41,8 @@ static const int ps2_cards[] = {
   DISPLAY_ADAPTER_MCGA_COLOR
 };
 
-const char *disp_names[] = {
+const char *disp_names[] =
+{
   "None",
   "MDA",
   "CGA",
@@ -119,32 +122,6 @@ int lock_region(const volatile void *region, size_t length)
   return !reg.x.cflag;
 }
 
-void far *get_int_vector(int inter)
-{
-  union REGS reg;
-  struct SREGS sreg;
-
-  // DOS get vector
-  reg.x.eax = 0x3500 | (inter & 0xFF);
-  sreg.ds = sreg.es = 0;
-  int386x(0x21, &reg, &reg, &sreg);
-
-  return MK_FP(sreg.es, reg.x.ebx);
-}
-
-void set_int_vector(int inter, void far *vector)
-{
-  union REGS reg;
-  struct SREGS sreg;
-
-  // DOS set vector
-  reg.x.eax = 0x2500 | (inter & 0xFF);
-  reg.x.edx = FP_OFF(vector);
-  sreg.ds = FP_SEG(vector);
-  sreg.es = 0;
-  int386x(0x21, &reg, &reg, &sreg);
-}
-
 #define CONFIG_SET_TIMER
 
 #ifdef CONFIG_SET_TIMER
@@ -200,8 +177,8 @@ bool platform_init(void)
     return false;
 
   // IRQ0 - system timer
-  tick_oldhandler = get_int_vector(0x08);
-  set_int_vector(0x08, (void far *)tick_handler);
+  tick_oldhandler = _dos_getvect(0x08);
+  _dos_setvect(0x08, (void far *)tick_handler);
 
 #ifdef CONFIG_SET_TIMER
   _disable();
@@ -226,5 +203,5 @@ void platform_quit(void)
   _enable();
 #endif
 
-  set_int_vector(0x08, (void far *)tick_oldhandler);
+  _dos_setvect(0x08, (void far *)tick_oldhandler);
 }
