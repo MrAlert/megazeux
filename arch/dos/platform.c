@@ -124,68 +124,64 @@ int lock_region(const volatile void *region, size_t length)
 
 #define CONFIG_SET_TIMER
 
+#define TIMER_NORMAL 65536
+#define TIMER_CLK 3579545
+
 #ifdef CONFIG_SET_TIMER
-#define TIMER_TICK 2
-#define TIMER_CLK 3579545
+#define TIMER_TICK 4
 #define TIMER_COUNT (TIMER_TICK * TIMER_CLK / 3000)
-#define TIMER_NORMAL 65536
 #else
-#define TIMER_COUNT 65536
-#define TIMER_CLK 3579545
+#define TIMER_COUNT TIMER_NORMAL
 #define TIMER_TICK (TIMER_COUNT * 3000 / TIMER_CLK)
-#define TIMER_NORMAL 65536
 #endif
 
 // Implemented in timer.asm
-void __interrupt tick_handler (void);
-void tick_handler_end (void);
+void __interrupt timer_handler (void);
+void timer_handler_end (void);
 
-volatile Uint32 ticks = 0;
-volatile Uint32 tick_offset = 0;
-volatile void (__interrupt __far *tick_oldhandler)(void);
-const Uint32 tick_len = TIMER_TICK;
-const Uint32 tick_count = TIMER_COUNT;
-const Uint32 tick_normal = TIMER_NORMAL;
+struct timer
+{
+  Uint32 ticks;
+  Uint32 off;
+  Uint32 len;
+  Uint32 count;
+  Uint32 normal;
+  Uint32 pad;
+  void (__interrupt __far *oldhandler)(void);
+};
+
+volatile struct timer timer =
+ { 0, 0, TIMER_TICK, TIMER_COUNT, TIMER_NORMAL, 0, NULL };
 
 void delay(Uint32 ms)
 {
-  ms += ticks;
-  while(ticks < ms);
+  ms += timer.ticks;
+  while(timer.ticks < ms);
 }
 
 Uint32 get_ticks(void)
 {
-  return ticks;
+  return timer.ticks;
 }
 
 bool platform_init(void)
 {
-  if(!lock_region(&ticks, sizeof(ticks)))
+  if(!lock_region(&timer, sizeof(timer)))
     return false;
-  if(!lock_region(&tick_offset, sizeof(tick_offset)))
-    return false;
-  if(!lock_region(&tick_oldhandler, sizeof(tick_oldhandler)))
-    return false;
-  if(!lock_region(&tick_len, sizeof(tick_len)))
-    return false;
-  if(!lock_region(&tick_count, sizeof(tick_count)))
-    return false;
-  if(!lock_region(&tick_normal, sizeof(tick_normal)))
-    return false;
-  if(!lock_region((void *)tick_handler, (char *)tick_handler_end -
-   (char *)tick_handler))
+  if(!lock_region((void *)timer_handler, (char *)timer_handler_end -
+   (char *)timer_handler))
     return false;
 
   // IRQ0 - system timer
-  tick_oldhandler = _dos_getvect(0x08);
-  _dos_setvect(0x08, (void far *)tick_handler);
+  timer.oldhandler = _dos_getvect(0x08);
+  _dos_setvect(0x08, (void far *)timer_handler);
 
 #ifdef CONFIG_SET_TIMER
   _disable();
   // Counter 0, read lsb-msb
   outp(0x43, 0x34);
-  outp(0x40, tick_count & 0xFF);
-  outp(0x40, tick_count >> 8);
+  outp(0x40, timer.count & 0xFF);
+  outp(0x40, timer.count >> 8);
   _enable();
 #endif
   delay(1000);
@@ -198,10 +194,10 @@ void platform_quit(void)
   _disable();
   // Counter 0, read lsb-msb
   outp(0x43, 0x34);
-  outp(0x40, tick_normal & 0xFF);
-  outp(0x40, tick_normal >> 8);
+  outp(0x40, timer.normal & 0xFF);
+  outp(0x40, timer.normal >> 8);
   _enable();
 #endif
 
-  _dos_setvect(0x08, (void far *)tick_oldhandler);
+  _dos_setvect(0x08, (void far *)timer.oldhandler);
 }

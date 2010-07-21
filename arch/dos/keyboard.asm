@@ -16,12 +16,18 @@
 ; along with this program; if not, write to the Free Software
 ; Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
 
+KEYBD	STRUCT
+	buffer		BYTE 256 DUP (?)
+	read		BYTE ?
+	write		BYTE ?
+	pad1		WORD ?
+	pad2		DWORD ?
+	oldhandler	FWORD ?
+KEYBD	ENDS
+
 _DATA	SEGMENT	BYTE PUBLIC USE32 'DATA'
-	; Defined in platform.c
-	EXTERN	_keyboard_buffer:BYTE
-	EXTERN	_keyboard_read:BYTE
-	EXTERN	_keyboard_write:BYTE
-	EXTERN	_keyboard_oldhandler:FWORD
+	; Defined in event_dos.c
+	EXTERN	_keyboard:KEYBD
 _DATA	ENDS
 
 DGROUP	GROUP	_DATA
@@ -38,15 +44,15 @@ keyboard_handler_:
 	push	eax
 	in	al, 60h				; Get scan code
 	xor	ebx, ebx
-	mov	bl, [_keyboard_write]
-	mov	bh, [_keyboard_read]
+	mov	bl, [_keyboard.write]
+	mov	bh, [_keyboard.read]
 	inc	bl
 	cmp	bl, bh
 	je	full_buffer
 	dec	bl
 	xor	bh, bh
-	mov	[ebx+_keyboard_buffer], al
-	inc	[_keyboard_write]
+	mov	[ebx+_keyboard.buffer], al
+	inc	[_keyboard.write]
 full_buffer:
 	;in	al, 61h
 	;or	al, 80h
@@ -56,7 +62,7 @@ full_buffer:
 	;mov	al, 020h
 	;out	020h, al
 	pushfd
-	call	fword ptr [_keyboard_oldhandler]
+	call	fword ptr [_keyboard.oldhandler]
 	pop	eax
 	pop	ebx
 	pop	ds

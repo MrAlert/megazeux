@@ -16,14 +16,19 @@
 ; along with this program; if not, write to the Free Software
 ; Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
 
+TIMER	STRUCT
+	ticks		DWORD ?
+	off		DWORD ?
+	len		DWORD ?
+	count		DWORD ?
+	normal		DWORD ?
+	pad		DWORD ?
+	oldhandler	FWORD ?
+TIMER	ENDS
+
 _DATA	SEGMENT	BYTE PUBLIC USE32 'DATA'
 	; Defined in platform.c
-	EXTERN	_ticks:DWORD
-	EXTERN	_tick_offset:DWORD
-	EXTERN	_tick_oldhandler:FWORD
-	EXTERN	_tick_len:DWORD
-	EXTERN	_tick_count:DWORD
-	EXTERN	_tick_normal:DWORD
+	EXTERN	_timer:TIMER
 _DATA	ENDS
 
 DGROUP GROUP _DATA
@@ -31,35 +36,35 @@ DGROUP GROUP _DATA
 _TEXT	SEGMENT	BYTE PUBLIC USE32 'CODE'
 	ASSUME	cs:_TEXT
 
-	PUBLIC	tick_handler_
-tick_handler_:
+	PUBLIC	timer_handler_
+timer_handler_:
 	push	ds
 	push	ebx
 	mov	bx, DGROUP
 	mov	ds, bx
-	mov	ebx, [_tick_len]
-	add	[_ticks], ebx			; ticks += tick_len;
-	mov	ebx, [_tick_offset]
-	add	ebx, [_tick_count]		; tick_offset += tick_count;
-	cmp	ebx, [_tick_normal]		; if(tick_count >= tick_normal)
-	jae	chain_time			;   goto chain_time;
-	mov	[_tick_offset], ebx
+	mov	ebx, [_timer.len]
+	add	[_timer.ticks], ebx	; timer.ticks += timer.length;
+	mov	ebx, [_timer.off]
+	add	ebx, [_timer.count]	; timer.offset += timer.count;
+	cmp	ebx, [_timer.normal]	; if(timer.count >= timer.normal)
+	jae	chain_time		;   goto chain_time;
+	mov	[_timer.off], ebx
 	pop	ebx
 	pop	ds
 	push	ax
 	mov	al, 020h
-	out	020h, al			; Send EOI to 8259 PIC
+	out	020h, al		; Send EOI to 8259 PIC
 	pop	ax
-	iretd					; return;
+	iretd				; return;
 chain_time:
-	sub	ebx, [_tick_normal]		; tick_offset -= tick_normal;
-	mov	[_tick_offset], ebx
+	sub	ebx, [_timer.normal]	; timer.offset -= timer.normal;
+	mov	[_timer.off], ebx
 	pushfd
-	call	fword ptr [_tick_oldhandler]
+	call	fword ptr [_timer.oldhandler]
 	pop	ebx
 	pop	ds
 	iretd
-	PUBLIC tick_handler_end_
-tick_handler_end_:
+	PUBLIC timer_handler_end_
+timer_handler_end_:
 _TEXT	ENDS
 	END

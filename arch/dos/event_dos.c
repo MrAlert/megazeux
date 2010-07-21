@@ -63,7 +63,8 @@ static const enum keycode xt_to_internal[0x80] =
   IKEY_F12, IKEY_UNKNOWN
 };
 
-static const enum keycode extended_xt_to_internal[0x80] = {
+static const enum keycode extended_xt_to_internal[0x80] =
+{
   // 0x
   IKEY_UNKNOWN, IKEY_UNKNOWN, IKEY_UNKNOWN, IKEY_UNKNOWN,
   IKEY_UNKNOWN, IKEY_UNKNOWN, IKEY_UNKNOWN, IKEY_UNKNOWN,
@@ -106,22 +107,35 @@ static enum keycode convert_xt_internal(Uint8 key)
 
 static int keyboard_init = 0;
 
-volatile Uint8 keyboard_buffer[256];
-volatile Uint8 keyboard_read = 0;
-volatile Uint8 keyboard_write = 0;
+// Implemented in keyboard.asm
+void __interrupt keyboard_handler (void);
+void keyboard_handler_end (void);
+
+struct keyboard
+{
+  Uint8 buffer[256];
+  Uint8 read;
+  Uint8 write;
+  Uint16 pad1;
+  Uint32 pad2;
+  void (__interrupt __far *oldhandler)(void);
+};
+
+volatile struct keyboard keyboard = { {0}, 0, 0, 0, 0, NULL };
 
 static int read_buffer(void)
 {
   int ret;
-  if(keyboard_read == keyboard_write)
+  if(keyboard.read == keyboard.write)
     return -1;
-  ret = keyboard_buffer[keyboard_read++];
+  ret = keyboard.buffer[keyboard.read++];
   return ret;
 }
 
-static Uint32 convert_xt_unicode(Uint8 key)
+static Uint16 xt_to_unicode[0x100] = {0};
+
+static void poll_keyboard_bios(void)
 {
-  static Uint16 xt_to_unicode[0x100] = {0};
   unsigned short res;
 
   while(_bios_keybrd(_KEYBRD_READY))
@@ -129,7 +143,11 @@ static Uint32 convert_xt_unicode(Uint8 key)
     res = _bios_keybrd(_KEYBRD_READ);
     xt_to_unicode[res >> 8] = res & 0xFF;
   }
+}
 
+static Uint16 convert_xt_unicode(Uint8 key)
+{
+  poll_keyboard_bios();
   return xt_to_unicode[key];
 }
 
@@ -145,8 +163,17 @@ static bool process_keypress(int key)
 {
   struct buffered_status *status = store_status();
   enum keycode ikey = convert_xt_internal(key);
+  Uint16 unicode = convert_xt_unicode(key);
 
   if(!ikey)
+  {
+    if(unicode)
+      ikey = IKEY_UNICODE;
+    else
+      return false;
+  }
+
+  if(status->keymap[ikey])
     return false;
 
   if((ikey == IKEY_CAPSLOCK) || (ikey == IKEY_NUMLOCK))
@@ -185,7 +212,7 @@ static bool process_keypress(int key)
     }
   }
 
-  key_press(status, ikey, convert_xt_unicode(key));
+  key_press(status, ikey, unicode);
   return true;
 }
 
@@ -195,7 +222,12 @@ static bool process_keyrelease(int key)
   enum keycode ikey = convert_xt_internal(key);
 
   if(!ikey)
-    return false;
+  {
+    if(status->keymap[IKEY_UNICODE])
+      ikey = IKEY_UNICODE;
+    else
+      return false;
+  }
 
   status->keymap[ikey] = 0;
   if(status->key_repeat == ikey)
@@ -253,18 +285,9 @@ void real_warp_mouse(Uint32 x, Uint32 y)
 {
 }
 
-// Implemented in keyboard.asm
-void __interrupt keyboard_handler (void);
-void keyboard_handler_end (void);
-volatile void (__interrupt __far *keyboard_oldhandler)(void);
-
 void initialize_joysticks(void)
 {
-  if(!lock_region(&keyboard_buffer, sizeof(keyboard_buffer)))
-    return;
-  if(!lock_region(&keyboard_read, sizeof(keyboard_read)))
-    return;
-  if(!lock_region(&keyboard_write, sizeof(keyboard_write)))
+  if(!lock_region(&keyboard, sizeof(keyboard)))
     return;
   if(!lock_region(&keyboard_handler, (char *)keyboard_handler_end -
    (char *)keyboard_handler))
@@ -273,7 +296,7 @@ void initialize_joysticks(void)
   // TODO: DOS/4GW probably resets the vectors on exit,
   // (protected mode vectors don't translate too well to real mode)
   // but we probably still want to do something about this.
-  keyboard_oldhandler = _dos_getvect(0x09);
+  keyboard.oldhandler = _dos_getvect(0x09);
   _dos_setvect(0x09, keyboard_handler);
   delay(1000);
   keyboard_init = 1;
