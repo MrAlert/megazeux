@@ -190,6 +190,8 @@ bool platform_init(void)
 
 void platform_quit(void)
 {
+  union REGS reg;
+
 #ifdef CONFIG_SET_TIMER
   _disable();
   // Counter 0, read lsb-msb
@@ -200,4 +202,9 @@ void platform_quit(void)
 #endif
 
   _dos_setvect(0x08, (void far *)timer.oldhandler);
+
+  // Reset mouse driver
+  // TODO: Add deinit function for event system
+  reg.w.ax = 0;
+  int386(0x33, &reg, &reg);
 }

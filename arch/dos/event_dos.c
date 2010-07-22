@@ -123,7 +123,7 @@ struct keyboard
 
 volatile struct keyboard keyboard = { {0}, 0, 0, 0, 0, NULL };
 
-static int read_buffer(void)
+static int read_keyboard(void)
 {
   int ret;
   if(keyboard.read == keyboard.write)
@@ -259,30 +259,166 @@ static bool process_key(int key)
   return ret;
 }
 
+static int mouse_init = 0;
+
+// Implemented in mouse.asm
+void mouse_handler (void);
+void mouse_handler_end (void);
+
+struct mousevt
+{
+  Uint16 cond;
+  Uint16 button;
+  Sint16 x;
+  Sint16 y;
+};
+
+struct mouse
+{
+  struct mousevt buffer[256];
+  Uint8 read;
+  Uint8 write;
+};
+
+volatile struct mouse mouse = { {0}, 0, 0 };
+
+static struct mousevt mouse_last = { 0, 0, 0, 0 };
+
+static bool read_mouse(struct mousevt *mev)
+{
+  if(mouse.read == mouse.write)
+    return false;
+  *mev = mouse.buffer[mouse.read++];
+  return true;
+}
+
+static bool process_mouse(struct mousevt *mev)
+{
+  struct buffered_status *status = store_status();
+  bool rval = false;
+
+  if(mev->cond & 0x01)
+  {
+    int mx = status->real_mouse_x + mev->x - mouse_last.x;
+    int my = status->real_mouse_y + mev->y - mouse_last.y;
+
+    if(mx < 0)
+      mx = 0;
+    if(my < 0)
+      my = 0;
+    if(mx >= 640)
+      mx = 639;
+    if(my >= 350)
+      my = 349;
+
+    status->real_mouse_x = mx;
+    status->real_mouse_y = my;
+    status->mouse_x = mx / 8;
+    status->mouse_y = my / 14;
+    status->mouse_moved = true;
+    rval = true;
+
+    mouse_last.x = mev->x;
+    mouse_last.y = mev->y;
+  }
+
+  if(mev->cond & 0x7E)
+  {
+    const Uint32 buttons[] =
+    {
+      MOUSE_BUTTON_LEFT,
+      MOUSE_BUTTON_RIGHT,
+      MOUSE_BUTTON_MIDDLE
+    };
+    int changed = mev->button ^ mouse_last.button;
+    int i, j;
+    for(i = 0, j = 1; i < 3; i++, j <<= 1)
+    {
+      if(changed & j)
+      {
+        if(mev->button & j)
+        {
+          status->mouse_button = buttons[i];
+          status->mouse_repeat = buttons[i];
+          status->mouse_button_state |= MOUSE_BUTTON(buttons[i]);
+          status->mouse_repeat_state = 1;
+          status->mouse_drag_state = -1;
+          status->mouse_time = get_ticks();
+        }
+        else
+        {
+          status->mouse_button_state &= ~MOUSE_BUTTON(buttons[i]);
+          status->mouse_repeat = 0;
+          status->mouse_drag_state = 0;
+          status->mouse_repeat_state = 0;
+        }
+        rval = true;
+      }
+    }
+    mouse_last.button = mev->button;
+  }
+  return rval;
+}
+
 bool __update_event_status(void)
 {
+  struct mousevt mev;
   bool rval = false;
   int key;
 
-  while((key = read_buffer()) != -1)
+  while((key = read_keyboard()) != -1)
     rval |= process_key(key);
+  while(read_mouse(&mev))
+    rval |= process_mouse(&mev);
 
   return rval;
 }
 
 void __wait_event(void)
 {
+  struct mousevt mev;
+  bool ret;
   int key;
 
-  if(!keyboard_init)
+  if(!keyboard_init && !mouse_init)
     return;
 
-  while((key = read_buffer()) == -1);
-  process_key(key);
+  while((key = read_keyboard()) == -1 && !(ret = read_mouse(&mev)));
+  if (key != -1)
+    process_key(key);
+  if (ret)
+    process_mouse(&mev);
 }
 
 void real_warp_mouse(Uint32 x, Uint32 y)
 {
+}
+
+static void init_mouse(void)
+{
+  void (far *func_ptr)(void);
+  struct SREGS sreg;
+  union REGS reg;
+
+  reg.w.ax = 0;
+  int386(0x33, &reg, &reg);
+
+  if(reg.w.ax != 0xFFFF)
+    return;
+  if(!lock_region(&mouse, sizeof(mouse)))
+    return;
+  if(!lock_region(&mouse_handler, (char *)mouse_handler_end -
+   (char *)mouse_handler))
+    return;
+
+  reg.w.ax = 0x000C;
+  reg.w.cx = 0x007F;
+  func_ptr = (void (far *)(void))mouse_handler;
+  reg.x.edx = FP_OFF(func_ptr);
+  sreg.es = FP_SEG(func_ptr);
+  int386x(0x33, &reg, &reg, &sreg);
+
+  mouse_init = 1;
 }
 
 void initialize_joysticks(void)
@@ -300,4 +436,6 @@ void initialize_joysticks(void)
   _dos_setvect(0x09, keyboard_handler);
   delay(1000);
   keyboard_init = 1;
+
+  init_mouse();
 }
