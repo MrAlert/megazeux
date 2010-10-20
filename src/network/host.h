@@ -21,6 +21,7 @@
 #define __HOST_H
 
 #include "../compat.h"
+#include "../configure.h"
 
 __M_BEGIN_DECLS
 
@@ -64,27 +65,33 @@ enum host_status
   HOST_ZLIB_INFLATE_FAILED,
 };
 
-#ifdef __WIN32__
+enum proxy_status
+{
+  PROXY_SUCCESS,
+  PROXY_CONNECTION_FAILED,
+  PROXY_AUTH_FAILED,
+  PROXY_AUTH_UNSUPPORTED,
+  PROXY_SEND_ERROR,
+  PROXY_HANDSHAKE_FAILED,
+  PROXY_REFLECTION_FAILED,
+  PROXY_TARGET_REFUSED,
+  PROXY_ADDRESS_TYPE_UNSUPPORTED,
+  PROXY_ACCESS_DENIED,
+  PROXY_UNKNOWN_ERROR
+};
 
 /**
  * Initializes the host layer. Must be called before all other host functions.
  *
  * @return Whether initialization succeeded, or not
  */
-bool host_layer_init(void);
+bool host_layer_init(struct config_info *conf);
 
 /**
  * Shuts down the host layer.
  * Frees any associated operating system resources.
  */
 void host_layer_exit(void);
-
-#else
-
-static inline bool host_layer_init(void) { return true; }
-static inline void host_layer_exit(void) { }
-
-#endif
 
 /**
  * Creates a host for use either as a client or a server. The new host will

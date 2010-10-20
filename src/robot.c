@@ -80,15 +80,11 @@ struct label **cache_robot_labels(struct robot *robot, int *num_labels)
 
   for(i = 1; i < (robot->program_bytecode_length - 1); i++)
   {
-    // NOTE: The assignment of 'next' below seems to produce a false positive
-    //       from valgrind, but it's also been a crash vector in the past
-    //       so I'm not entirely sure. Stack corruption maybe?
-
     // Is it a label?
     cmd = robot_program[i + 1];
     next = i + robot_program[i] + 1;
 
-    if((cmd == 106) || (cmd == 108))
+    if((cmd == ROBOTIC_CMD_LABEL) || (cmd == ROBOTIC_CMD_ZAPPED_LABEL))
     {
       current_label = cmalloc(sizeof(struct label));
       current_label->name = robot_program + i + 3;
@@ -96,9 +92,9 @@ struct label **cache_robot_labels(struct robot *robot, int *num_labels)
       if(next >= (robot->program_bytecode_length - 2))
         current_label->position = 0;
       else
-        current_label->position = next + 1;
+        current_label->position = i;
 
-      if(cmd == 108)
+      if(cmd == ROBOTIC_CMD_ZAPPED_LABEL)
         current_label->zapped = 1;
       else
         current_label->zapped = 0;
@@ -1895,23 +1891,6 @@ char *next_param_pos(char *ptr)
 // Internal only. NOTE- IF WE EVER ALLOW ZAPPING OF LABELS NOT IN CURRENT
 // ROBOT, USE A COPY OF THE *LABEL BEFORE THE PREPARE_ROBOT_MEM!
 
-static int get_label_cmd_offset(struct robot *cur_robot, int position)
-{
-  int label_cmd_offset;
-
-  if(position > 0)
-    return position - cur_robot->program_bytecode[position - 1] - 1;
-
-  // Position will be zero if the label was
-  // the last command in the program..
-
-  // gets us to the length parameter for the last command
-  label_cmd_offset = cur_robot->program_bytecode_length - 1 - 1;
-
-  // then to the base of the last command..
-  return label_cmd_offset - cur_robot->program_bytecode[label_cmd_offset];
-}
-
 // TODO: What we'll want to do is use the label cache instead, so that
 // we're not actually modifying the program.
 
@@ -1924,13 +1903,7 @@ int restore_label(struct robot *cur_robot, char *label)
 
   if(dest_label)
   {
-    int label_cmd_offset =
-     get_label_cmd_offset(cur_robot, dest_label->position);
-
-    assert(label_cmd_offset > 0 &&
-           label_cmd_offset < cur_robot->program_bytecode_length);
-
-    cur_robot->program_bytecode[label_cmd_offset] = 106;
+    cur_robot->program_bytecode[dest_label->position + 1] = ROBOTIC_CMD_LABEL;
     dest_label->zapped = 0;
     return 1;
   }
@@ -1944,13 +1917,7 @@ int zap_label(struct robot *cur_robot, char *label)
 
   if(dest_label)
   {
-    int label_cmd_offset =
-     get_label_cmd_offset(cur_robot, dest_label->position);
-
-    assert(label_cmd_offset > 0 &&
-           label_cmd_offset < cur_robot->program_bytecode_length);
-
-    cur_robot->program_bytecode[label_cmd_offset] = 108;
+    cur_robot->program_bytecode[dest_label->position + 1] = ROBOTIC_CMD_ZAPPED_LABEL;
     dest_label->zapped = 1;
     return 1;
   }

@@ -75,6 +75,8 @@ struct host
   bool (*cancel_cb)(void);
 
   const char *name;
+  const char *endpoint;
+  bool proxied;
   int proto;
   int af;
   int fd;
@@ -254,12 +256,10 @@ static inline struct hostent *platform_gethostbyname(const char *name)
   return gethostbyname(name);
 }
 
-#ifdef __amigaos__
 static inline uint16_t platform_htons(uint16_t hostshort)
 {
   return htons(hostshort);
 }
-#endif
 
 static inline int platform_listen(int sockfd, int backlog)
 {
@@ -459,44 +459,6 @@ static bool socket_load_syms(void)
   return true;
 }
 
-bool host_layer_init(void)
-{
-  WORD version = MAKEWORD(1, 0);
-  WSADATA ws_data;
-
-  if(init_ref_count == 0)
-  {
-    if(!socket_load_syms())
-      return false;
-
-    if(socksyms.WSAStartup(version, &ws_data) < 0)
-      return false;
-  }
-
-  init_ref_count++;
-  return true;
-}
-
-void host_layer_exit(void)
-{
-  assert(init_ref_count > 0);
-  init_ref_count--;
-
-  if(init_ref_count != 0)
-    return;
-
-  if(socksyms.WSACleanup() == SOCKET_ERROR)
-  {
-    if(socksyms.WSAGetLastError() == WSAEINPROGRESS)
-    {
-      socksyms.WSACancelBlockingCall();
-      socksyms.WSACleanup();
-    }
-  }
-
-  socket_free_syms();
-}
-
 __network_maybe_static bool host_last_error_fatal(void)
 {
   if(socksyms.WSAGetLastError() == WSAEWOULDBLOCK)
@@ -605,6 +567,53 @@ static inline ssize_t platform_recvfrom(int s, void *buf, size_t len,
 }
 
 #endif // __WIN32__
+
+static struct config_info *conf;
+
+bool host_layer_init(struct config_info *in_conf)
+{
+#ifdef __WIN32__
+  WORD version = MAKEWORD(1, 0);
+  WSADATA ws_data;
+
+  if(init_ref_count == 0)
+  {
+    if(!socket_load_syms())
+      return false;
+
+    if(socksyms.WSAStartup(version, &ws_data) < 0)
+      return false;
+  }
+
+  init_ref_count++;
+#endif // __WIN32__
+
+  conf = in_conf;
+  return true;
+}
+
+void host_layer_exit(void)
+{
+#ifdef __WIN32__
+  assert(init_ref_count > 0);
+  init_ref_count--;
+
+  if(init_ref_count != 0)
+    return;
+
+  if(socksyms.WSACleanup() == SOCKET_ERROR)
+  {
+    if(socksyms.WSAGetLastError() == WSAEINPROGRESS)
+    {
+      socksyms.WSACancelBlockingCall();
+      socksyms.WSACleanup();
+    }
+  }
+
+  socket_free_syms();
+#endif // __WIN32__
+}
+
 
 struct host *host_create(enum host_type type, enum host_family fam)
 {
@@ -863,9 +872,190 @@ static bool host_address_op(struct host *h, const char *hostname,
   return true;
 }
 
-bool host_connect(struct host *h, const char *hostname, int port)
+static bool _raw_host_connect(struct host *h, const char *hostname, int port)
 {
   return host_address_op(h, hostname, port, NULL, connect_op);
+}
+
+static enum proxy_status socks4a_connect(struct host *h,
+ const char *target_host, int target_port)
+{
+  char handshake[8];
+  int rBuf;
+  target_port = platform_htons(target_port);
+
+  _raw_host_connect(h, conf->socks_host, conf->socks_port);
+
+  if (!__send(h, "\4\1", 2))
+    return PROXY_SEND_ERROR;
+  if (!__send(h, &target_port, 2))
+    return PROXY_SEND_ERROR;
+  if (!__send(h, "\0\0\0\1anonymous", 14))
+    return PROXY_SEND_ERROR;
+  if (!__send(h, target_host, strlen(target_host)))
+    return PROXY_SEND_ERROR;
+  if (!__send(h, "\0", 1))
+    return PROXY_SEND_ERROR;
+
+  rBuf = __recv(h, handshake, 8);
+  if (rBuf == -1)
+    return PROXY_CONNECTION_FAILED;
+  if (handshake[1] != 90)
+    return PROXY_HANDSHAKE_FAILED;
+  return PROXY_SUCCESS;
+}
+
+static enum proxy_status socks4_connect(struct host *h,
+ struct addrinfo *ai_data)
+{
+  char handshake[8];
+  int rBuf;
+
+  _raw_host_connect(h, conf->socks_host, conf->socks_port);
+
+  if (!__send(h, "\4\1", 2))
+    return PROXY_SEND_ERROR;
+  if (!__send(h, ai_data->ai_addr->sa_data, 6))
+    return PROXY_SEND_ERROR;
+  if (!__send(h, "anonymous\0", 10))
+    return PROXY_SEND_ERROR;
+
+  rBuf = __recv(h, handshake, 8);
+  if (rBuf == -1)
+    return PROXY_CONNECTION_FAILED;
+  if (handshake[1] != 90)
+    return PROXY_HANDSHAKE_FAILED;
+  return PROXY_SUCCESS;
+}
+
+static enum proxy_status socks5_connect(struct host *h,
+ struct addrinfo *ai_data)
+{
+  /* This handshake is more complicated than SOCKS4 or 4a...
+   * and we're also only supporting none or user/password auth.
+   */
+
+  char handshake[10];
+  int rBuf;
+
+  _raw_host_connect(h, conf->socks_host, conf->socks_port);
+
+  // Version[0x05]|Number of auth methods|auth methods
+  if (!__send(h, "\5\1\0", 3))
+    return PROXY_SEND_ERROR;
+
+  rBuf = __recv(h, handshake, 2);
+  if (rBuf == -1)
+    return PROXY_CONNECTION_FAILED;
+  if (handshake[0] != 0x5)
+    return PROXY_HANDSHAKE_FAILED;
+
+#ifdef CONFIG_IPV6
+  if (ai_data->ai_family == AF_INET6)
+    return PROXY_ADDRESS_TYPE_UNSUPPORTED;
+#endif
+
+  // Version[0x05]|Command|0x00|address type|destination|port
+  if (!__send(h, "\5\1\0\1", 4))
+    return PROXY_SEND_ERROR;
+  if (!__send(h, ai_data->ai_addr->sa_data+2, 4))
+    return PROXY_SEND_ERROR;
+  if (!__send(h, ai_data->ai_addr->sa_data, 2))
+    return PROXY_SEND_ERROR;
+
+  rBuf = __recv(h, handshake, 10);
+  if (rBuf == -1)
+    return PROXY_CONNECTION_FAILED;
+  switch (handshake[1])
+  {
+    case 0x0:
+      return PROXY_SUCCESS;
+    case 0x1:
+    case 0x7:
+      return PROXY_UNKNOWN_ERROR;
+    case 0x2:
+      return PROXY_ACCESS_DENIED;
+    case 0x3:
+    case 0x4:
+    case 0x6:
+      return PROXY_REFLECTION_FAILED;
+    case 0x5:
+      return PROXY_TARGET_REFUSED;
+    case 0x8:
+      return PROXY_ADDRESS_TYPE_UNSUPPORTED;
+    default:
+      return PROXY_UNKNOWN_ERROR;
+  }
+}
+
+// SOCKS Proxy support
+static enum proxy_status proxy_connect(struct host *h, const char *target_host, int target_port)
+{
+  struct addrinfo target_hints, *target_ais, *target_ai;
+  char port_str[6];
+  int ret;
+
+  snprintf(port_str, 6, "%d", target_port);
+  port_str[5] = 0;
+
+  memset(&target_hints, 0, sizeof(struct addrinfo));
+  target_hints.ai_socktype = (h->proto == IPPROTO_TCP) ? SOCK_STREAM : SOCK_DGRAM;
+  target_hints.ai_protocol = h->proto;
+  target_hints.ai_family = h->af;
+  ret = platform_getaddrinfo(target_host, port_str, &target_hints, &target_ais);
+
+  /* Some perimeter gateways block access to DNS [wifi hotspots are
+   * particularly notorious for this] so we have to fall back to SOCKS4a
+   * to force the proxy to DNS the address for us. If this fails, we abort.
+   */
+  if(ret != 0)
+    return socks4a_connect(h, target_host, target_port);
+
+#ifdef CONFIG_IPV6
+  for(target_ai = target_ais; target_ai; target_ai = target_ai->ai_next)
+  {
+    if(target_ai->ai_family != AF_INET6)
+      continue;
+    if (socks5_connect(h, target_ai) == PROXY_SUCCESS)
+    {
+      platform_freeaddrinfo(target_ais);
+      return PROXY_SUCCESS;
+    }
+  }
+#endif
+
+  for(target_ai = target_ais; target_ai; target_ai = target_ai->ai_next)
+  {
+    if(target_ai->ai_family != AF_INET)
+      continue;
+    if (socks5_connect(h, target_ai) == PROXY_SUCCESS)
+    {
+      platform_freeaddrinfo(target_ais);
+      return PROXY_SUCCESS;
+    }
+    if (socks4_connect(h, target_ai) == PROXY_SUCCESS)
+    {
+      platform_freeaddrinfo(target_ais);
+      return PROXY_SUCCESS;
+    }
+  }
+
+  return PROXY_CONNECTION_FAILED;
+}
+
+bool host_connect(struct host *h, const char *hostname, int port)
+{
+  if (strlen(conf->socks_host) > 0)
+  {
+    if (proxy_connect(h, hostname, port) == PROXY_SUCCESS)
+    {
+      h->proxied = true;
+      h->endpoint = hostname;
+      return true;
+    }
+    return false;
+  }
+  return _raw_host_connect(h, hostname, port);
 }
 
 static int http_recv_line(struct host *h, char *buffer, int len)
@@ -984,6 +1174,7 @@ enum host_status host_recv_file(struct host *h, const char *url,
 {
   bool mid_inflate = false, mid_chunk = false, deflated = false;
   unsigned int content_length = 0;
+  const char *host_name = h->name;
   unsigned long len = 0, pos = 0;
   char line[LINE_BUF_LEN];
   z_stream stream;
@@ -1002,7 +1193,11 @@ enum host_status host_recv_file(struct host *h, const char *url,
     return -HOST_SEND_FAILED;
 
   // For vhost resolution
-  snprintf(line, LINE_BUF_LEN, "Host: %s", h->name);
+  if (h->proxied)
+    host_name = h->endpoint;
+
+  snprintf(line, LINE_BUF_LEN, "Host: %s", host_name);
+
   line[LINE_BUF_LEN - 1] = 0;
   if(http_send_line(h, line) < 0)
     return -HOST_SEND_FAILED;
