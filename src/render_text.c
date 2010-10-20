@@ -81,6 +81,14 @@ static void text_blink_off(void)
   int386(0x10, &reg, &reg);
 }
 
+static void text_cursor_off(void)
+{
+  union REGS reg;
+  reg.w.ax = 0x0103;
+  reg.w.cx = 0x1F00;
+  int386(0x10, &reg, &reg);
+}
+
 static unsigned char text_get_mode(void)
 {
   union REGS reg;
@@ -156,6 +164,7 @@ static bool text_set_video_mode(struct graphics_data *graphics,
   // 80x25 color text mode
   text_set_mode(0x03);
   text_blink_off();
+  text_cursor_off();
 
   // If VGA, set the EGA palette to point to first 16 VGA palette entries
   if(render_data->vga)
