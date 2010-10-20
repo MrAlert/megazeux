@@ -129,7 +129,7 @@ static bool ega_set_video_mode(struct graphics_data *graphics,
   if(render_data->vga)
   {
     ega_vsync();
-    for (i = 0; i < 16; i++)
+    for(i = 0; i < 16; i++)
     {
       outp(0x03C0, i);
       outp(0x03C0, i);
@@ -313,13 +313,13 @@ static void ega_render_graph_smzx3(struct graphics_data *graphics, Uint8 *fb)
   Uint8 *char_ptr;
   Uint8 base, char_colors[4];
   int plane, x, y, i, shift;
-  for (plane = 0; plane < 4; plane++)
+  for(plane = 0; plane < 4; plane++)
   {
     src = graphics->text_video;
     dest = fb;
     ega_set_plane(plane);
     shift = (3 - plane) * 2;
-    for (y = 0; y < 25; y++)
+    for(y = 0; y < 25; y++)
     {
       ldest2 = dest;
       for(x = 0; x < 80; x++)

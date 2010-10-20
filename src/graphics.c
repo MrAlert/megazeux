@@ -84,6 +84,9 @@ static const struct renderer_data renderers[] =
 #if defined(CONFIG_RENDER_EGA)
   { "ega", render_ega_register },
 #endif
+#if defined(CONFIG_RENDER_TEXT)
+  { "text", render_text_register },
+#endif
   { NULL, NULL }
 };
 

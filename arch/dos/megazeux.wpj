@@ -4,8 +4,8 @@ projectIdent
 VpeMain
 1
 WRect
-2341
-0
+709
+1024
 5440
 9216
 2
@@ -29,7 +29,7 @@ VComponent
 8
 WRect
 544
-530
+521
 3440
 4352
 0
@@ -38,6 +38,6 @@ WRect
 WFileName
 12
 megazeux.tgt
-0
-3
+18
+28
 7

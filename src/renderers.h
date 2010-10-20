@@ -58,6 +58,9 @@ void render_gx_register(struct renderer *renderer);
 #if defined(CONFIG_RENDER_EGA)
 void render_ega_register(struct renderer *renderer);
 #endif
+#if defined(CONFIG_RENDER_TEXT)
+void render_text_register(struct renderer *renderer);
+#endif
 
 __M_END_DECLS
 
