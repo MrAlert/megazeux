@@ -41,11 +41,14 @@ static const Uint16 text_addr[4] =
   0x3000
 };
 
+#define TEXT_FLAGS_CHR 1
+#define TEXT_FLAGS_VGA 2
+
 struct text_render_data
 {
   unsigned char page;
   unsigned char smzx;
-  unsigned char vga;
+  unsigned char flags;
   unsigned char oldmode;
 };
 
@@ -105,9 +108,37 @@ static void text_set_mode(unsigned char mode)
   int386(0x10, &reg, &reg);
 }
 
+static void text_bank_char(void)
+{
+  outp(0x03CE, 0x05);
+  outp(0x03CF, 0x00);
+  outp(0x03CE, 0x06);
+  outp(0x03CF, 0x0C);
+  outp(0x03C4, 0x04);
+  outp(0x03C5, 0x06);
+  outp(0x03C4, 0x02);
+  outp(0x03C5, 0x04);
+  outp(0x03CE, 0x04);
+  outp(0x03CF, 0x02);
+}
+
+static void text_bank_text(void)
+{
+  outp(0x03CE, 0x05);
+  outp(0x03CF, 0x10);
+  outp(0x03CE, 0x06);
+  outp(0x03CF, 0x0E);
+  outp(0x03C4, 0x04);
+  outp(0x03C5, 0x02);
+  outp(0x03C4, 0x02);
+  outp(0x03C5, 0x03);
+  outp(0x03CE, 0x04);
+  outp(0x03CF, 0x00);
+}
+
 static void text_vsync(void)
 {
-  while (inp(0x3DA) & 0x08);
+  while (inp(0x03DA) & 0x08);
   while (!inp(0x03DA) & 0x08);
 }
 
@@ -129,7 +160,10 @@ static bool text_init_video(struct graphics_data *graphics,
   graphics->window_width = 640;
   graphics->window_height = 350;
 
-  render_data->vga = (display >= DISPLAY_ADAPTER_VGA_MONO);
+  if(display >= DISPLAY_ADAPTER_VGA_MONO)
+    render_data->flags = TEXT_FLAGS_VGA;
+  else
+    render_data->flags = 0;
   render_data->oldmode = text_get_mode();
 
   return set_video_mode();
@@ -138,7 +172,7 @@ static bool text_init_video(struct graphics_data *graphics,
 static void text_free_video(struct graphics_data *graphics)
 {
   struct text_render_data *render_data = (void *)&graphics->render_data;
-  if(render_data->vga)
+  if(render_data->flags & TEXT_FLAGS_VGA)
     text_set_16p();
   text_set_mode(render_data->oldmode);
   text_blink_on();
@@ -159,7 +193,7 @@ static bool text_set_video_mode(struct graphics_data *graphics,
   render_data->page = 0;
   render_data->smzx = 0;
 
-  if(render_data->vga)
+  if(render_data->flags & TEXT_FLAGS_VGA)
     text_set_14p();
   // 80x25 color text mode
   text_set_mode(0x03);
@@ -167,7 +201,7 @@ static bool text_set_video_mode(struct graphics_data *graphics,
   text_cursor_off();
 
   // If VGA, set the EGA palette to point to first 16 VGA palette entries
-  if(render_data->vga)
+  if(render_data->flags & TEXT_FLAGS_VGA)
   {
     text_vsync();
     for(i = 0; i < 16; i++)
@@ -179,7 +213,28 @@ static bool text_set_video_mode(struct graphics_data *graphics,
     outp(0x03C0, 0x20);
   }
 
+  render_data->flags |= TEXT_FLAGS_CHR;
+
   return true;
+}
+
+static void text_remap_charsets(struct graphics_data *graphics)
+{
+  struct text_render_data *render_data = (void *)&graphics->render_data;
+  render_data->flags |= TEXT_FLAGS_CHR;
+}
+
+static void text_remap_char(struct graphics_data *graphics, Uint16 chr)
+{
+  struct text_render_data *render_data = (void *)&graphics->render_data;
+  render_data->flags |= TEXT_FLAGS_CHR;
+}
+
+static void text_remap_charbyte(struct graphics_data *graphics, Uint16 chr,
+ Uint8 byte)
+{
+  struct text_render_data *render_data = (void *)&graphics->render_data;
+  render_data->flags |= TEXT_FLAGS_CHR;
 }
 
 static void text_update_colors(struct graphics_data *graphics,
@@ -188,7 +243,7 @@ static void text_update_colors(struct graphics_data *graphics,
   struct text_render_data *render_data = (void *)&graphics->render_data;
   int i, j, c, step;
 
-  if(render_data->vga)
+  if(render_data->flags & TEXT_FLAGS_VGA)
   {
     for(i = 0; i < count; i++)
     {
@@ -246,14 +301,26 @@ static void text_render_mouse(struct graphics_data *graphics,
 {
   struct text_render_data *render_data = (void *)&graphics->render_data;
   Uint8 *dest = text_vb[render_data->page];
-  dest += x / 8;
-  dest += y / 14 * 80;
+  dest += x / 8 * 2 + 1;
+  dest += y / 14 * 160;
   *dest ^= 0xFF;
 }
 
 static void text_sync_screen(struct graphics_data *graphics)
 {
-  // FIXME: Page flip!
+  struct text_render_data *render_data = (void *)&graphics->render_data;
+  Uint8 *src = graphics->charset;
+  Uint8 *dest = (void *)0x000B8000;
+  int i;
+  if(render_data->flags & TEXT_FLAGS_CHR)
+  {
+    text_bank_char();
+    for(i = 0; i < 256; i++, src += 14, dest += 32)
+      memcpy(dest, src, 14);
+    text_bank_text();
+    render_data->flags &= ~TEXT_FLAGS_CHR;
+  }
+  // TODO: Page flip! Both text pages and character sets!
 }
 
 void render_text_register(struct renderer *renderer)
@@ -265,6 +332,9 @@ void render_text_register(struct renderer *renderer)
   renderer->set_video_mode = text_set_video_mode;
   renderer->update_colors = text_update_colors;
   renderer->resize_screen = resize_screen_standard;
+  renderer->remap_charsets = text_remap_charsets;
+  renderer->remap_char = text_remap_char;
+  renderer->remap_charbyte = text_remap_charbyte;
   renderer->get_screen_coords = get_screen_coords_centered;
   renderer->set_screen_coords = set_screen_coords_centered;
   renderer->render_graph = text_render_graph;
