@@ -124,15 +124,17 @@ ifneq (${PLATFORM},mingw)
 # Symbols in COFF binaries are implicitly hidden unless exported; this
 # flag just confuses GCC and must be disabled.
 #
+ifneq (${PLATFORM},djgpp)
 CFLAGS   += -fvisibility=hidden
 CXXFLAGS += -fvisibility=hidden
+endif
 
 #
 # Skip the stack protector on embedded platforms; it just unnecessarily
 # slows things down, and there's no easy way to write a convincing
 # __stack_chk_fail function.
 #
-ifeq ($(or ${BUILD_GP2X},${BUILD_NDS},${BUILD_PSP},${BUILD_WII}),)
+ifeq ($(or ${BUILD_GP2X},${BUILD_NDS},${BUILD_PSP},${BUILD_WII},${BUILD_DJGPP}),)
 ifneq (${PLATFORM},android)
 CFLAGS   += -fstack-protector-all
 CXXFLAGS += -fstack-protector-all

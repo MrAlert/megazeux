@@ -104,6 +104,12 @@ typedef enum
 #undef CONDITION
 #endif
 
+#ifdef CONFIG_DJGPP
+// FIXME: DANGEROUS HACK! FIX AS SOON AS POSSIBLE!
+#include <stdio.h>
+#define snprintf(ptr, size, ...) sprintf(ptr, __VA_ARGS__)
+#endif
+
 #ifndef MAX_PATH
 #define MAX_PATH 512
 #endif

@@ -113,6 +113,13 @@ core_cobjs += arch/wii/audio.o
 endif
 endif
 
+ifeq (${BUILD_DJGPP},1)
+core_cobjs += arch/djgpp/event.o arch/djgpp/platform.o
+ifeq (${BUILD_AUDIO},1)
+core_cobjs += arch/djgpp/audio.o
+endif
+endif
+
 #
 # Other modular stuff
 #
@@ -162,6 +169,10 @@ ifeq (${BUILD_RENDER_GX},1)
 core_cobjs += ${core_obj}/render_gx.o
 endif
 
+ifeq (${BUILD_RENDER_EGA},1)
+core_cobjs += ${core_obj}/render_ega.o
+endif
+
 ifeq (${BUILD_MODPLUG},1)
 core_cflags += -I${gdm2s3m_src}
 core_cobjs += ${gdm2s3m_objs}
@@ -206,7 +217,7 @@ endif
 
 else
 
-ifeq ($(or ${BUILD_WII},${BUILD_NDS}),)
+ifeq ($(or ${BUILD_WII},${BUILD_NDS},${BUILD_DJGPP}),)
 
 core_cobjs += ${core_obj}/platform_dummy.o
 

@@ -29,6 +29,7 @@ usage() {
 	echo "  amiga          Experimental AmigaOS 4 port"
 	echo "  android        Experimental Android port"
 	echo "  pandora        Experimental Pandora port"
+	echo "  djgpp          Experimental DOS port"
 	echo
 	echo "Supported <option> values (negatives can be used):"
 	echo
@@ -454,6 +455,13 @@ if [ "$PLATFORM" = "pandora" ]; then
 	echo "BUILD_PANDORA=1" >> platform.inc
 fi
 
+if [ "$PLATFORM" = "djgpp" ]; then
+	echo "#define CONFIG_DJGPP" >> src/config.h
+	echo "BUILD_DJGPP=1" >> platform.inc
+	echo "Disabling SDL (DJGPP)."
+	SDL="false"
+fi
+
 #
 # SDL was disabled above; must also disable SDL-dependent modules
 #
@@ -542,7 +550,8 @@ fi
 # Force-disable OpenGL and overlay renderers on PSP, GP2X and NDS
 #
 if [ "$PLATFORM" = "psp" -o "$PLATFORM" = "gp2x" \
-  -o "$PLATFORM" = "nds" -o "$PLATFORM" = "wii" ]; then
+  -o "$PLATFORM" = "nds" -o "$PLATFORM" = "wii" \
+  -o "$PLATFORM" = "djgpp" ]; then
   	echo "Force-disabling OpenGL and overlay renderers."
 	GL="false"
 	OVERLAY="false"
@@ -592,7 +601,8 @@ fi
 # Force disable modular DSOs.
 #
 if [ "$PLATFORM" = "gp2x" -o "$PLATFORM" = "nds" \
-  -o "$PLATFORM" = "psp"  -o "$PLATFORM" = "wii" ]; then
+  -o "$PLATFORM" = "psp"  -o "$PLATFORM" = "wii" \
+  -o "$PLATFORM" = "djgpp" ]; then
 	echo "Force-disabling modular build (nonsensical or unsupported)."
 	MODULAR="false"
 fi
@@ -601,7 +611,7 @@ fi
 # Force disable networking.
 #
 if [ "$EDITOR" = "false" -o "$PLATFORM" = "unix" -o "$PLATFORM" = "psp" \
-  -o "$PLATFORM" = "nds" -o "$PLATFORM" = "wii" ]; then
+  -o "$PLATFORM" = "nds" -o "$PLATFORM" = "wii" -o "$PLATFORM" = "djgpp" ]; then
 	echo "Force-disabling networking (nonsensical or unsupported)."
 	NETWORK="false"
 fi
@@ -748,7 +758,7 @@ fi
 if [ "$ICON" = "true" ]; then
 	if [ "$PLATFORM" = "darwin" -o "$PLATFORM" = "gp2x" \
 	  -o "$PLATFORM" = "psp" -o "$PLATFORM" = "nds" \
-	  -o "$PLATFORM" = "wii" ]; then
+	  -o "$PLATFORM" = "wii" -o "$PLATFORM" = "djgpp" ]; then
 		echo "Force-disabling icon branding (redundant)."
 		ICON="false"
 	fi
@@ -816,6 +826,15 @@ if [ "$GP2X" = "true" ]; then
 	echo "BUILD_RENDER_GP2X=1" >> platform.inc
 else
 	echo "GP2X half-res renderer disabled."
+fi
+
+#
+# EGA renderer
+#
+if [ "$PLATFORM" = "djgpp" ]; then
+	echo "Building EGA renderer."
+	echo "#define CONFIG_RENDER_EGA" >> src/config.h
+	echo "BUILD_RENDER_EGA=1" >> platform.inc
 fi
 
 #
