@@ -126,15 +126,13 @@ void sfx_edit(struct world *mzx_world)
   {
     "Default internal SFX", "Custom SFX"
   };
-  struct element *a_elements[3] =
-  {
-    construct_radio_button(2, 2, radio_strings, 2, 20,
-     &mzx_world->custom_sfx_on),
-    construct_button(5, 5, "OK", 0),
-    construct_button(15, 5, "Cancel", -1)
-  };
-
+  struct element *a_elements[3];
   struct element *b_elements[21];
+
+  a_elements[0] = construct_radio_button(2, 2, radio_strings, 2, 20,
+                   &mzx_world->custom_sfx_on);
+  a_elements[1] = construct_button(5, 5, "OK", 0);
+  a_elements[2] = construct_button(15, 5, "Cancel", -1);
 
   set_context(97);
 

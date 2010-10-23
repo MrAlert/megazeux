@@ -2067,11 +2067,9 @@ static void __edit_world(struct world *mzx_world)
               {
                 // Character set
                 int char_offset = 0;
-                struct element *elements[] =
-                {
-                  construct_number_box(21, 20, "Offset:  ",
-                   0, 255, 0, &char_offset),
-                };
+                struct element *elements[1];
+                elements[0] = construct_number_box(21, 20, "Offset:  ",
+                               0, 255, 0, &char_offset);
 
                 if(!file_manager(mzx_world, chr_ext, NULL, import_name,
                  "Choose character set to import", 1, 0,
@@ -2259,13 +2257,11 @@ static void __edit_world(struct world *mzx_world)
                 // Character set
                 int char_offset = 0;
                 int char_size = 256;
-                struct element *elements[] =
-                {
-                  construct_number_box(9, 20, "Offset:  ",
-                   0, 255, 0, &char_offset),
-                  construct_number_box(35, 20, "Size: ",
-                   1, 256, 0, &char_size)
-                };
+                struct element *elements[2];
+                elements[0] = construct_number_box(9, 20, "Offset:  ",
+                               0, 255, 0, &char_offset);
+                elements[1] = construct_number_box(35, 20, "Size: ",
+                               1, 256, 0, &char_size);
 
                 if(!file_manager(mzx_world, chr_ext, NULL, export_name,
                  "Export character set", 1, 1, elements, 2, 2, 0))

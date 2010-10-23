@@ -5,6 +5,7 @@
 #define SHAREDIR "./"
 #define CONFIG_DOS
 #define CONFIG_HELPSYS
+#define CONFIG_EDITOR
 #define CONFIG_RENDER_EGA
 #define CONFIG_RENDER_TEXT
 #define CONFIG_CHECK_ALLOC

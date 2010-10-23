@@ -604,12 +604,13 @@ void size_pos(struct world *mzx_world)
 
   int redo = 1;
 
-  int results[6] =
-  {
-    src_board->viewport_x, src_board->viewport_y,
-    src_board->viewport_width, src_board->viewport_height,
-    src_board->board_width, src_board->board_height
-  };
+  int results[6];
+  results[0] = src_board->viewport_x;
+  results[1] = src_board->viewport_y;
+  results[2] = src_board->viewport_width;
+  results[3] = src_board->viewport_height;
+  results[4] = src_board->board_width;
+  results[5] = src_board->board_height;
 
   set_context(84);
 
@@ -727,16 +728,8 @@ void board_info(struct world *mzx_world)
   int dialog_result;
   struct element *elements[8];
   struct dialog di;
-  int check_box_results[13] =
-  {
-    src_board->can_shoot, src_board->can_bomb,
-    src_board->fire_burn_space, src_board->fire_burn_fakes,
-    src_board->fire_burn_trees, src_board->fire_burn_brown,
-    src_board->forest_becomes, src_board->collect_bombs,
-    src_board->fire_burns, src_board->restart_if_zapped,
-    src_board->player_ns_locked, src_board->player_ew_locked,
-    src_board->player_attack_locked
-  };
+  int check_box_results[13];
+
   const char *check_box_strings[] =
   {
     "Can shoot", "Can bomb", "Fire burns space",
@@ -764,6 +757,20 @@ void board_info(struct world *mzx_world)
   int radio_result_3 = src_board->overlay_mode;
   int time_limit = src_board->time_limit;
   char title_string[BOARD_NAME_SIZE];
+
+  check_box_results[0] = src_board->can_shoot;
+  check_box_results[1] = src_board->can_bomb;
+  check_box_results[2] = src_board->fire_burn_space;
+  check_box_results[3] = src_board->fire_burn_fakes;
+  check_box_results[4] = src_board->fire_burn_trees;
+  check_box_results[5] = src_board->fire_burn_brown;
+  check_box_results[6] = src_board->forest_becomes;
+  check_box_results[7] = src_board->collect_bombs;
+  check_box_results[8] = src_board->fire_burns;
+  check_box_results[9] = src_board->restart_if_zapped;
+  check_box_results[10] = src_board->player_ns_locked;
+  check_box_results[11] = src_board->player_ew_locked;
+  check_box_results[12] = src_board->player_attack_locked;
 
   set_context(85);
 
@@ -1043,12 +1050,8 @@ void global_info(struct world *mzx_world)
   int health_limit = mzx_world->health_limit;
   int radio_result_1 = 2;
   int radio_result_2 = 1;
-  int check_box_results_1[1] = { mzx_world->game_over_sfx };
-  int check_box_results_2[3] =
-  {
-    mzx_world->enemy_hurt_enemy, mzx_world->clear_on_exit,
-    mzx_world->only_from_swap
-  };
+  int check_box_results_1[1];
+  int check_box_results_2[3];
   const char *radio_strings_1[] =
   {
     "Death- Same position", "Death- Restart board",
@@ -1071,6 +1074,11 @@ void global_info(struct world *mzx_world)
   struct element *b_elements[10];
   int dialog_result;
   int redo = 0;
+
+  check_box_results_1[0] = mzx_world->game_over_sfx;
+  check_box_results_2[0] = mzx_world->enemy_hurt_enemy;
+  check_box_results_2[1] = mzx_world->clear_on_exit;
+  check_box_results_2[2] = mzx_world->only_from_swap;
 
   do
   {

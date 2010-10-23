@@ -1558,15 +1558,13 @@ int char_editor(struct world *mzx_world)
           int char_size = current_width * current_height;
           int current_file = 0;
 
-          struct element *elements[] =
-          {
-            construct_number_box(3, 20, "Offset:  ",
-             0, 255, 0, &char_offset),
-            construct_number_box(28, 20, "First: ",
-             0, 255, 0, &current_file),
-            construct_number_box(52, 20, "Count: ",
-             1, 256, 0, &num_files)
-          };
+          struct element *elements[3];
+          elements[0] = construct_number_box(3, 20, "Offset:  ",
+                         0, 255, 0, &char_offset);
+          elements[1] = construct_number_box(28, 20, "First: ",
+                         0, 255, 0, &current_file);
+          elements[2] = construct_number_box(52, 20, "Count: ",
+                         1, 256, 0, &num_files);
 
           if(!file_manager(mzx_world, chr_ext, ".chr", export_string,
            "Export character set(s)", 1, 1, elements, 3, 2, 0))
@@ -1603,15 +1601,13 @@ int char_editor(struct world *mzx_world)
           int current_file = 0;
           int char_size;
 
-          struct element *elements[] =
-          {
-            construct_number_box(3, 20, "Offset:  ",
-             0, 255, 0, &char_offset),
-            construct_number_box(28, 20, "First: ",
-             0, 255, 0, &current_file),
-            construct_number_box(52, 20, "Count: ",
-             1, 256, 0, &num_files)
-          };
+          struct element *elements[3];
+          elements[0] = construct_number_box(3, 20, "Offset:  ",
+                         0, 255, 0, &char_offset);
+          elements[1] = construct_number_box(28, 20, "First: ",
+                         0, 255, 0, &current_file);
+          elements[2] = construct_number_box(52, 20, "Count: ",
+                         1, 256, 0, &num_files);
 
           if(!file_manager(mzx_world, chr_ext, NULL, import_string,
            "Import character set(s)", 1, 2, elements, 3, 2, 0))

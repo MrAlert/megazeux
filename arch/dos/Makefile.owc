@@ -1,0 +1,50 @@
+.OPTIMIZE
+
+!ifdef __LOADDLL__
+!  loaddll wcc386 wccd386
+!  loaddll wlink  wlinkd
+!endif
+
+CORE_SRC = src
+CORE_OBJS = &
+ $(CORE_SRC)/board.obj $(CORE_SRC)/configure.obj &
+ $(CORE_SRC)/counter.obj $(CORE_SRC)/data.obj $(CORE_SRC)/error.obj &
+ $(CORE_SRC)/event.obj $(CORE_SRC)/expr.obj $(CORE_SRC)/fsafeopen.obj &
+ $(CORE_SRC)/game2.obj $(CORE_SRC)/game.obj $(CORE_SRC)/graphics.obj &
+ $(CORE_SRC)/idarray.obj $(CORE_SRC)/idput.obj $(CORE_SRC)/intake.obj &
+ $(CORE_SRC)/legacy_rasm.obj $(CORE_SRC)/mzm.obj $(CORE_SRC)/render.obj &
+ $(CORE_SRC)/robot.obj $(CORE_SRC)/run_robot.obj &
+ $(CORE_SRC)/scrdisp.obj $(CORE_SRC)/sfx.obj $(CORE_SRC)/sprite.obj &
+ $(CORE_SRC)/util.obj $(CORE_SRC)/window.obj $(CORE_SRC)/world.obj
+
+CORE_OBJS += $(CORE_SRC)/helpsys.obj
+
+EDITOR_SRC = src/editor
+EDITOR_OBJS = &
+ $(EDITOR_SRC)/block.obj $(EDITOR_SRC)/board.obj $(EDITOR_SRC)/configure.obj &
+ $(EDITOR_SRC)/char_ed.obj $(EDITOR_SRC)/debug.obj $(EDITOR_SRC)/edit.obj &
+ $(EDITOR_SRC)/edit_di.obj $(EDITOR_SRC)/fill.obj $(EDITOR_SRC)/graphics.obj &
+ $(EDITOR_SRC)/macro.obj $(EDITOR_SRC)/pal_ed.obj $(EDITOR_SRC)/param.obj &
+ $(EDITOR_SRC)/robo_ed.obj $(EDITOR_SRC)/robot.obj $(EDITOR_SRC)/sfx_edit.obj &
+ $(EDITOR_SRC)/window.obj $(EDITOR_SRC)/world.obj
+
+RENDER_OBJS = $(CORE_SRC)/render_ega.obj $(CORE_SRC)/render_text.obj
+
+ARCH_SRC = arch/dos
+ARCH_OBJS = &
+ $(ARCH_SRC)/platform.obj $(ARCH_SRC)/event_dos.obj &
+ $(ARCH_SRC)/timer.obj $(ARCH_SRC)/keyboard.obj $(ARCH_SRC)/mouse.obj
+
+OBJS = $(CORE_OBJS) $(EDITOR_OBJS) $(RENDER_OBJS) $(ARCH_OBJS) &
+ $(CORE_SRC)/main.obj
+
+.asm : $(ARCH_SRC)
+.asm.obj :
+	*wasm $< -mf -3r -w4 -zq -fo=$@
+
+.c : $(CORE_SRC);$(EDITOR_SRC);$(ARCH_SRC)
+.c.obj :
+	*wcc386 $< -i="arch/dos" -i="src" -w4 -zq -3r -bt=dos -fo=$@ -mf
+
+megazeux.exe : $(OBJS)
+	*wlink name $@ sys dos32a op q file { $< }

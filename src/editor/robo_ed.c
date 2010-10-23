@@ -1203,13 +1203,12 @@ static int block_menu(struct world *mzx_world)
     "Copy block", "Cut block",
     "Clear block", "Export block"
   };
-  struct element *elements[3] =
-  {
-    construct_radio_button(2, 2, radio_strings,
-     4, 21, &block_op),
-    construct_button(5, 7, "OK", 0),
-    construct_button(15, 7, "Cancel", -1)
-  };
+  struct element *elements[3];
+
+  elements[0] = construct_radio_button(2, 2, radio_strings,
+                 4, 21, &block_op);
+  elements[1] = construct_button(5, 7, "OK", 0);
+  elements[2] = construct_button(15, 7, "Cancel", -1);
 
   construct_dialog(&di, "Choose Block Command", 26, 6, 28, 10,
    elements, 3, 0);
@@ -1864,18 +1863,17 @@ static void edit_settings(struct world *mzx_world)
   // 38 x 12
   int dialog_result;
   struct dialog di;
-  struct element *elements[8] =
-  {
-    construct_label(5, 2, "Macros:"),
-    construct_input_box(5, 4, "F6-  ", 43, 0, macros[0]),
-    construct_input_box(5, 5, "F7-  ", 43, 0, macros[1]),
-    construct_input_box(5, 6, "F8-  ", 43, 0, macros[2]),
-    construct_input_box(5, 7, "F9-  ", 43, 0, macros[3]),
-    construct_input_box(5, 8, "F10- ", 43, 0, macros[4]),
-    construct_button(15, 10, "OK", 0),
-    construct_button(37, 10, "Cancel", -1)
-  };
+  struct element *elements[8];
   char new_macros[5][64];
+
+  elements[0] = construct_label(5, 2, "Macros:");
+  elements[1] = construct_input_box(5, 4, "F6-  ", 43, 0, macros[0]);
+  elements[2] = construct_input_box(5, 5, "F7-  ", 43, 0, macros[1]);
+  elements[3] = construct_input_box(5, 6, "F8-  ", 43, 0, macros[2]);
+  elements[4] = construct_input_box(5, 7, "F9-  ", 43, 0, macros[3]);
+  elements[5] = construct_input_box(5, 8, "F10- ", 43, 0, macros[4]);
+  elements[6] = construct_button(15, 10, "OK", 0);
+  elements[7] = construct_button(37, 10, "Cancel", -1);
 
   memcpy(new_macros, macros, 64 * 5);
 
@@ -2006,14 +2004,13 @@ static void goto_position(struct world *mzx_world, struct robot_state *rstate)
   int column_number = rstate->current_x;
   struct dialog di;
 
-  struct element *elements[4] =
-  {
-    construct_number_box(2, 2, "Line:   ", 0, rstate->total_lines,
-     0, &line_number),
-    construct_number_box(2, 3, "Column: ", 0, 240, 0, &column_number),
-    construct_button(3, 5, "OK", 0),
-    construct_button(14, 5, "Cancel", -1)
-  };
+  struct element *elements[4];
+  elements[0] = construct_number_box(2, 2, "Line:   ", 0, rstate->total_lines,
+                 0, &line_number);
+  elements[1] = construct_number_box(2, 3, "Column: ", 0, 240, 0,
+                 &column_number);
+  elements[2] = construct_button(3, 5, "OK", 0);
+  elements[3] = construct_button(14, 5, "Cancel", -1);
 
   construct_dialog(&di, "Goto position", 28, 8, 25, 7,
    elements, 4, 0);
@@ -2139,23 +2136,24 @@ static void find_replace_action(struct robot_state *rstate)
   struct dialog di;
   const char *check_strings_1[] = { "Wrap around end" };
   const char *check_strings_2[] = { "Match case" };
-  int check_result_1[] = { wrap_option };
-  int check_result_2[] = { case_option };
-  struct element *elements[8] =
-  {
-    construct_input_box(2, 2, "Find:    ",
-     46, 0, search_string),
-    construct_input_box(2, 3, "Replace: ",
-     46, 0, replace_string),
-    construct_check_box(3, 5, check_strings_1,
-     1, 15, check_result_1),
-    construct_check_box(30, 5, check_strings_2,
-     1, 10, check_result_2),
-    construct_button(5, 7, "Search", 0),
-    construct_button(15, 7, "Replace", 1),
-    construct_button(27, 7, "Replace All", 2),
-    construct_button(44, 7, "Cancel", -1)
-  };
+  int check_result_1[1];
+  int check_result_2[1];
+  struct element *elements[8];
+
+  check_result_1[0] = wrap_option;
+  check_result_2[0] = case_option;
+  elements[0] = construct_input_box(2, 2, "Find:    ",
+                 46, 0, search_string);
+  elements[1] = construct_input_box(2, 3, "Replace: ",
+                 46, 0, replace_string);
+  elements[2] = construct_check_box(3, 5, check_strings_1,
+                 1, 15, check_result_1);
+  elements[3] = construct_check_box(30, 5, check_strings_2,
+                 1, 10, check_result_2);
+  elements[4] = construct_button(5, 7, "Search", 0);
+  elements[5] = construct_button(15, 7, "Replace", 1);
+  elements[6] = construct_button(27, 7, "Replace All", 2);
+  elements[7] = construct_button(44, 7, "Cancel", -1);
 
   construct_dialog(&di, "Search and Replace", 10, 7, 70, 10,
    elements, 8, 0);

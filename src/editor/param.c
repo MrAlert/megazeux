@@ -267,7 +267,7 @@ static int pe_door(struct world *mzx_world, int param)
 {
   int alignment = param & 1;
   int opens = (param >> 1) & 0x03;
-  int check_results[1] = { (param >> 3) & 0x01 };
+  int check_results[1];
   struct dialog di;
   struct element *elements[5];
   int dialog_result;
@@ -281,6 +281,7 @@ static int pe_door(struct world *mzx_world, int param)
   };
   const char *check_strings[] = { "Locked door" };
 
+  check_results[0] = (param >> 3) & 0x01;
   set_confirm_buttons(elements);
   elements[2] = construct_radio_button(15, 3, radio_strings_1,
    2, 18, &alignment);
@@ -303,12 +304,13 @@ static int pe_door(struct world *mzx_world, int param)
 
 static int pe_gate(struct world *mzx_world, int param)
 {
-  int check_results[1] = { param };
+  int check_results[1];
   struct dialog di;
   struct element *elements[3];
   int dialog_result;
   const char *check_strings[] = { "Locked gate" };
 
+  check_results[0] = param;
   set_confirm_buttons(elements);
   elements[2] = construct_check_box(15, 7, check_strings,
    1, 11, check_results);
@@ -524,7 +526,7 @@ static int pe_snake(struct world *mzx_world, int param)
 {
   int dir = param & 0x3;
   int intel = (param >> 4) + 1;
-  int check_results[1] = { ((param >> 2) & 1) ^ 1 };
+  int check_results[1];
   struct dialog di;
   struct element *elements[5];
   int dialog_result;
@@ -534,6 +536,7 @@ static int pe_snake(struct world *mzx_world, int param)
   };
   const char *check_strings[] = { "Fast movement " };
 
+  check_results[0] = ((param >> 2) & 1) ^ 1;
   set_confirm_buttons(elements);
   elements[2] = construct_radio_button(15, 4, radio_strings,
    4, 5, &dir);
@@ -558,12 +561,13 @@ static int pe_eye(struct world *mzx_world, int param)
 {
   int intel = (param & 0x07) + 1;
   int radius = ((param >> 3) & 0x07) + 1;
-  int check_results[1] = { (param >> 6) ^ 1 };
+  int check_results[1];
   struct dialog di;
   struct element *elements[5];
   int dialog_result;
   const char *check_strings[] = { "Fast movement " };
 
+  check_results[0] = (param >> 6) ^ 1;
   set_confirm_buttons(elements);
   elements[2] = construct_number_box(15, 6, "Intelligence: ",
    1, 8, 0, &intel);
@@ -616,7 +620,7 @@ static int pe_thief(struct world *mzx_world, int param)
 static int pe_slime_blob(struct world *mzx_world, int param)
 {
   int speed = (param & 0x07) + 1;
-  int check_results[2] = { (param >> 6) & 0x01, (param >> 7) & 0x01 };
+  int check_results[2];
   struct dialog di;
   struct element *elements[4];
   int dialog_result;
@@ -625,6 +629,8 @@ static int pe_slime_blob(struct world *mzx_world, int param)
     "Hurts player", "Invincible"
   };
 
+  check_results[0] = (param >> 6) & 0x01;
+  check_results[1] = (param >> 7) & 0x01;
   set_confirm_buttons(elements);
   elements[2] = construct_number_box(15, 6, "Spread speed: ",
    1, 8, 0, &speed);
@@ -681,12 +687,13 @@ static int pe_ghost(struct world *mzx_world, int param)
 {
   int intel = (param & 0x07) + 1;
   int speed = ((param >> 4) & 0x03) + 1;
-  int check_results[] = { (param >> 3) & 0x01 };
+  int check_results[1];
   struct dialog di;
   struct element *elements[5];
   int dialog_result;
   const char *check_strings[] = { "Invincible" };
 
+  check_results[0] = (param >> 3) & 0x01;
   set_confirm_buttons(elements);
   elements[2] = construct_number_box(15, 6, "Intelligence:  ",
    1, 8, 0, &intel);
@@ -711,12 +718,13 @@ static int pe_dragon(struct world *mzx_world, int param)
 {
   int fire_rate = (param & 0x03) + 1;
   int hp = ((param >> 5) & 0x03) + 1;
-  int check_results[1] = { ((param >> 2) & 0x01) };
+  int check_results[1];
   struct dialog di;
   struct element *elements[5];
   int dialog_result;
   const char *check_strings[] = { "Moves" };
 
+  check_results[0] = ((param >> 2) & 0x01);
   set_confirm_buttons(elements);
   elements[2] = construct_number_box(15, 6, "Firing rate: ",
    1, 4, 0, &fire_rate);
@@ -740,11 +748,7 @@ static int pe_dragon(struct world *mzx_world, int param)
 static int pe_fish(struct world *mzx_world, int param)
 {
   int intel = (param & 0x07) + 1;
-  int check_results[4] =
-  {
-    (param >> 6) & 0x01, (param >> 5) & 0x01,
-    (param >> 7) & 0x01, ((param >> 3) & 0x01) ^ 1
-  };
+  int check_results[4];
 
   struct dialog di;
   struct element *elements[4];
@@ -755,6 +759,10 @@ static int pe_fish(struct world *mzx_world, int param)
     "2 hit points", "Fast movement"
   };
 
+  check_results[0] = (param >> 6) & 0x01;
+  check_results[1] = (param >> 5) & 0x01;
+  check_results[2] = (param >> 7) & 0x01;
+  check_results[3] = ((param >> 3) & 0x01) ^ 1;
   set_confirm_buttons(elements);
   elements[2] = construct_number_box(15, 5, "Intelligence: ",
    1, 8, 0, &intel);
@@ -813,10 +821,7 @@ static int pe_spider(struct world *mzx_world, int param)
 {
   int intel = (param & 0x03) + 1;
   int web = ((param >> 3) & 0x03);
-  int check_results[2] =
-  {
-    ((param >> 5) & 0x01) ^ 1, ((param >> 7) & 0x01)
-  };
+  int check_results[2];
 
   struct dialog di;
   struct element *elements[5];
@@ -830,6 +835,8 @@ static int pe_spider(struct world *mzx_world, int param)
     "Fast movement", "2 hit points"
   };
 
+  check_results[0] = ((param >> 5) & 0x01) ^ 1;
+  check_results[1] = ((param >> 7) & 0x01);
   set_confirm_buttons(elements);
   elements[2] = construct_number_box(15, 3, "Intelligence: ",
    1, 8, 0, &intel);
@@ -921,12 +928,13 @@ static int pe_bear(struct world *mzx_world, int param)
 {
   int sens = (param & 0x07) + 1;
   int speed = ((param >> 3) & 0x03) + 1;
-  int check_results[1] = { (param >> 7) };
+  int check_results[1];
   struct dialog di;
   struct element *elements[5];
   int dialog_result;
   const char *check_strings[] = { "2 hit points" };
 
+  check_results[0] = (param >> 7);
   set_confirm_buttons(elements);
   elements[2] = construct_number_box(15, 6, "Sensitivity:   ",
    1, 8, 0, &sens);
