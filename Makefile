@@ -134,10 +134,12 @@ endif
 # slows things down, and there's no easy way to write a convincing
 # __stack_chk_fail function.
 #
-ifeq ($(or ${BUILD_GP2X},${BUILD_NDS},${BUILD_PSP},${BUILD_WII},${BUILD_DJGPP}),)
+ifeq ($(or ${BUILD_GP2X},${BUILD_NDS},${BUILD_PSP},${BUILD_WII}),)
 ifneq (${PLATFORM},android)
+ifneq (${PLATFORM},djgpp)
 CFLAGS   += -fstack-protector-all
 CXXFLAGS += -fstack-protector-all
+endif
 endif
 endif
 
