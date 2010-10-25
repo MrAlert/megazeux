@@ -114,7 +114,7 @@ endif
 endif
 
 ifeq (${BUILD_DJGPP},1)
-core_cobjs += arch/djgpp/event.o arch/djgpp/platform.o
+core_cobjs += arch/djgpp/event.o arch/djgpp/platform.o arch/djgpp/interrupt.o
 ifeq (${BUILD_AUDIO},1)
 core_cobjs += arch/djgpp/audio.o
 endif
@@ -217,8 +217,8 @@ endif
 
 else
 
-ifeq ($(or ${BUILD_WII},${BUILD_NDS},${BUILD_DJGPP}),)
-
+ifeq ($(or ${BUILD_WII},${BUILD_NDS}),)
+ifneq (${PLATFORM},djgpp)
 core_cobjs += ${core_obj}/platform_dummy.o
 
 #
@@ -230,6 +230,7 @@ ifeq (${PTHREAD},1)
 core_ldflags := ${PTHREAD_LDFLAGS} ${core_ldflags}
 endif
 
+endif
 endif
 
 endif

@@ -1040,6 +1040,12 @@ static bool change_video_output(struct config_info *conf, const char *output)
 
 #endif
 
+void quit_video(void)
+{
+  if(graphics.renderer.free_video)
+    graphics.renderer.free_video(&graphics);
+}
+
 void toggle_fullscreen(void)
 {
   graphics.fullscreen = !graphics.fullscreen;

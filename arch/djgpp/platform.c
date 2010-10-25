@@ -19,7 +19,11 @@
  */
 
 #include <pc.h>
+#include <dos.h>
 #include <dpmi.h>
+#include <sys/segments.h>
+#include <sys/exceptn.h>
+#include "util.h"
 #include "platform.h"
 #include "platform_djgpp.h"
 
@@ -102,4 +106,107 @@ int detect_graphics(void)
       }
     }
   }
+}
+
+#define TIMER_CLOCK  3579545
+#define TIMER_LENGTH 8
+#define TIMER_COUNT  (TIMER_LENGTH * TIMER_CLOCK / 3000)
+#define TIMER_NORMAL 65536
+
+// Defined in interrupt.S
+extern int int_lock_start, int_lock_end;
+extern unsigned short int_ds;
+
+extern int timer_handler;
+extern __dpmi_paddr timer_old_handler;
+extern volatile Uint32 timer_ticks;
+extern volatile Uint32 timer_offset;
+extern Uint32 timer_length;
+extern Uint32 timer_count;
+extern Uint32 timer_normal;
+
+extern __dpmi_paddr kbd_old_handler;
+
+void delay(Uint32 ms)
+{
+  ms += timer_ticks;
+  while(timer_ticks < ms);
+}
+
+Uint32 get_ticks(void)
+{
+  return timer_ticks;
+}
+
+static void set_timer(Uint32 count)
+{
+  outportb(0x43, 0x34);
+  outportb(0x40, count & 0xFF);
+  outportb(0x40, count >> 8);
+}
+
+bool platform_init(void)
+{
+  __dpmi_meminfo region;
+  __dpmi_paddr handler;
+  unsigned long base;
+
+  // Disable exception on Ctrl-C
+  __djgpp_set_ctrl_c(0);
+
+  int_ds = _my_ds();
+
+  if(__dpmi_get_segment_base_address(_my_ds(), &base))
+  {
+    warn("Failed to get segment base address.");
+    return false;
+  }
+
+  region.address = base + (unsigned long)&int_lock_start;
+  region.size = (unsigned long)&int_lock_end - (unsigned long)&int_lock_start;
+  if(__dpmi_lock_linear_region(&region))
+  {
+    warn("Failed to lock interrupt handler region.");
+    return false;
+  }
+
+  timer_length = TIMER_LENGTH;
+  timer_count = TIMER_COUNT;
+  timer_normal = TIMER_NORMAL;
+  __dpmi_get_protected_mode_interrupt_vector(0x08, &timer_old_handler);
+
+  handler.offset32 = (unsigned long)&timer_handler;
+  handler.selector = _my_cs();
+
+  disable();
+  if(__dpmi_set_protected_mode_interrupt_vector(0x08, &handler))
+  {
+    enable();
+    warn("Failed to hook timer interrupt.");
+    return false;
+  }
+  set_timer(timer_count);
+  enable();
+
+  __dpmi_get_protected_mode_interrupt_vector(0x09, &kbd_old_handler);
+  return true;
+}
+
+void platform_quit(void)
+{
+  __dpmi_regs reg;
+
+  // TODO: Add deinit function for event system
+  // Unhook keyboard interrupt
+  if(__dpmi_set_protected_mode_interrupt_vector(0x09, &kbd_old_handler))
+    warn("Failed to unhook keyboard interrupt.");
+  // Reset mouse driver
+  reg.x.ax = 0;
+  __dpmi_int(0x33, &reg);
+
+  disable();
+  if(__dpmi_set_protected_mode_interrupt_vector(0x08, &timer_old_handler))
+    warn("Failed to unhook timer interrupt.");
+  set_timer(timer_normal);
+  enable();
 }

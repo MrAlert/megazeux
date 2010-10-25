@@ -122,7 +122,8 @@ static unsigned char ega_get_mode(void)
 static void ega_set_mode(unsigned char mode)
 {
   __dpmi_regs reg;
-  reg.x.ax = mode;
+  reg.h.ah = 0x00;
+  reg.h.al = mode;
   __dpmi_int(0x10, &reg);
 }
 
@@ -180,7 +181,7 @@ static bool ega_init_video(struct graphics_data *graphics,
   sel = __dpmi_allocate_ldt_descriptors(1);
   if(__dpmi_set_descriptor(sel, ega_vb_desc) < 0)
   {
-    warn("Unable to create VRAM selector.");
+    warn("Failed to create VRAM selector.");
     free(render_data);
     return false;
   }
