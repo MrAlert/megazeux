@@ -27,7 +27,7 @@
 #include "graphics.h"
 #include "render.h"
 #include "renderers.h"
-#include "platform_djgpp.h"
+#include "../arch/djgpp/platform_djgpp.h"
 #include "util.h"
 
 // Address: 0x000B8000

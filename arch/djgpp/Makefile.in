@@ -3,7 +3,7 @@
 #
 
 CC      = ${DJGPPBASE}gcc
-CXX     = ${DJGPPBASE}g++
+CXX     = ${DJGPPBASE}gpp
 AS      = ${DJGPPBASE}as
 AR      = ${DJGPPBASE}ar
 OBJCOPY = ${DJGPPBASE}objcopy
@@ -14,7 +14,7 @@ BINEXT = .exe
 LIBPNG_CFLAGS  = -I${PREFIX}/include/libpng14
 LIBPNG_LDFLAGS = -lpng14 -lz
 
-EXTRA_INCLUDES = -Iarch/djgpp
+EXTRA_INCLUDES = -Iarch/djgpp/include
 
 # 387 emulation for FPU not have
 EXTRA_LIBS = -lemu
@@ -22,7 +22,7 @@ EXTRA_LIBS = -lemu
 # pc.h and sys/farptr.h have functions declared extern __inline__
 # Use -fgnu89-inline to avoid multiple-definition errors
 ARCH_CFLAGS   += ${EXTRA_INCLUDES} -fgnu89-inline
-ARCH_CXXFLAGS += ${EXTRA_INCLUDES} -fgnu89-inline
+ARCH_CXXFLAGS += ${EXTRA_INCLUDES}
 ARCH_LDFLAGS  += ${EXTRA_LIBS}
 
 clean:

@@ -8,12 +8,23 @@ toolchain. You may also need the following libraries and tools installed:
    - libogg (audio only)
    - libvorbis (audio only)
 
+To build libogg and libvorbis, or to run config.sh under DOS, you'll also want:
+
+   - bash (bsh*b.zip)
+   - fileutils (fil*b.zip)
+   - sed (sed*b.zip)
+   - textutils (txt*b.zip)
+   - sh-utils (shl*b.zip)
+   - grep (grep*b.zip)
+   - diffutils (dif*b.zip)
+   - awk (gwk*b.zip)
+
 You will also need a copy of CWSDPMI.EXE in this directory for packaging.
 
 Use a config.sh configure line such as:
 
-./config.sh --platform djgpp --prefix /dev/env/DJDIR --disable-audio \
-            --enable-release --enable-meter
+./config.sh --platform djgpp --prefix /dev/env/DJDIR --enable-release \
+            --enable-meter
 
 PACKAGING
 
@@ -22,16 +33,16 @@ distribution.
 
 NOTES
 
-Building with DJGPP has only been tested with config.sh running under Linux and
-the DJGPP toolchain running under DOSEMU, but presumably this should work with a
-cross-compiling toolchain as well. In that case, you must set DJGPPBASE to the
-correct prefix.
+Building with DJGPP has only been tested with the DJGPP toolchain running under
+DOSEMU, but presumably this should work with a cross-compiling toolchain as
+well. In that case, you must set DJGPPBASE to the correct prefix.
 
 DJGPP 2.0.3 does not implement snprintf(), so DJGPP 2.0.4 beta may be required
 to build a safe version of MegaZeux.
 
-"mkdir src/.build" and other such commands may fail during make under DOSEMU.
-If this happens, you will have to manually create the needed directories.
+"mkdir src/.build" and other such commands may fail during make under DOSEMU
+(unless you installed fileutils.) If this happens, you will have to manually
+create the needed directories.
 
 Running make under Linux after building MegaZeux under DOSEMU will most likely
 fail due to weird dependency tracking files. Set NODEPS=1 to ignore these files.

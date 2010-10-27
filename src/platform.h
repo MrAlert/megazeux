@@ -61,6 +61,8 @@ int real_main(int argc, char *argv[]);
 #include "mutex_sdl.h"
 #elif defined(CONFIG_WII)
 #include "../arch/wii/mutex.h"
+#elif defined(CONFIG_DJGPP)
+#include "../arch/djgpp/mutex.h"
 #else
 #error Provide a valid mutex implementation for this platform!
 #endif
