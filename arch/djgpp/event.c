@@ -17,7 +17,6 @@
 * along with this program; if not, write to the Free Software
 * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
 */
-// TODO: Implement everything!
 
 #include <bios.h>
 #include <dpmi.h>
@@ -127,12 +126,123 @@ static enum keycode convert_ext_internal(Uint8 key)
     return xt_to_internal[key];
 }
 
+static int extbioskey(int cmd)
+{
+  __dpmi_regs reg;
+  if(cmd < 0 || cmd >= 3)
+    return -1;
+  reg.h.ah = cmd | 0x10;
+  __dpmi_int(0x16, &reg);
+  switch(cmd)
+  {
+    default:
+    case 0:
+      return reg.x.ax;
+    case 1:
+      if(reg.x.flags & 0x40)
+        return 0;
+      else
+        return reg.x.ax;
+    case 2:
+      return reg.h.al;
+  }
+}
+
 static void update_lock_status(struct buffered_status *status)
 {
   unsigned short res;
-  res = bioskey(2);
+  res = extbioskey(2);
   status->numlock_status = !!(res & 0x20);
   status->caps_status = !!(res & 0x40);
+}
+
+static Uint8 convert_bios_xt(Uint8 key)
+{
+  switch(key)
+  {
+    case 0x54: return 0x3B; // Shift-F1
+    case 0x55: return 0x3C; // Shift-F2
+    case 0x56: return 0x3D; // Shift-F3
+    case 0x57: return 0x3E; // Shift-F4
+    case 0x58: return 0x3F; // Shift-F5
+    case 0x59: return 0x40; // Shift-F6
+    case 0x5A: return 0x41; // Shift-F7
+    case 0x5B: return 0x42; // Shift-F8
+    case 0x5C: return 0x43; // Shift-F9
+    case 0x5D: return 0x44; // Shift-F10
+    case 0x5E: return 0x3B; // Ctrl-F1
+    case 0x5F: return 0x3C; // Ctrl-F2
+    case 0x60: return 0x3D; // Ctrl-F3
+    case 0x61: return 0x3E; // Ctrl-F4
+    case 0x62: return 0x3F; // Ctrl-F5
+    case 0x63: return 0x40; // Ctrl-F6
+    case 0x64: return 0x41; // Ctrl-F7
+    case 0x65: return 0x42; // Ctrl-F8
+    case 0x66: return 0x43; // Ctrl-F9
+    case 0x67: return 0x44; // Ctrl-F10
+    case 0x68: return 0x3B; // Alt-F1
+    case 0x69: return 0x3C; // Alt-F2
+    case 0x6A: return 0x3D; // Alt-F3
+    case 0x6B: return 0x3E; // Alt-F4
+    case 0x6C: return 0x3F; // Alt-F5
+    case 0x6D: return 0x40; // Alt-F6
+    case 0x6E: return 0x41; // Alt-F7
+    case 0x6F: return 0x42; // Alt-F8
+    case 0x70: return 0x43; // Alt-F9
+    case 0x71: return 0x44; // Alt-F10
+    case 0x72: return 0x37; // Ctrl-PrtSc
+    case 0x73: return 0x4B; // Ctrl-Left
+    case 0x74: return 0x4D; // Ctrl-Right
+    case 0x75: return 0x4F; // Ctrl-End
+    case 0x76: return 0x51; // Ctrl-PgDn
+    case 0x77: return 0x47; // Ctrl-Home
+    case 0x78: return 0x02; // Alt-1
+    case 0x79: return 0x03; // Alt-2
+    case 0x7A: return 0x04; // Alt-3
+    case 0x7B: return 0x05; // Alt-4
+    case 0x7C: return 0x06; // Alt-5
+    case 0x7D: return 0x07; // Alt-6
+    case 0x7E: return 0x08; // Alt-7
+    case 0x7F: return 0x09; // Alt-8
+    case 0x80: return 0x0A; // Alt-9
+    case 0x81: return 0x0B; // Alt-0
+    case 0x82: return 0x0C; // Alt--
+    case 0x83: return 0x0D; // Alt-=
+    case 0x84: return 0x49; // Ctrl-PgUp
+    // Extended keycodes
+    case 0x85: return 0x57; // F11
+    case 0x86: return 0x58; // F12
+    case 0x87: return 0x57; // Shift-F11
+    case 0x88: return 0x58; // Shift-F12
+    case 0x89: return 0x57; // Ctrl-F11
+    case 0x8A: return 0x58; // Ctrl-F12
+    case 0x8B: return 0x57; // Alt-F11
+    case 0x8C: return 0x58; // Alt-F12
+    case 0x8D: return 0x48; // Ctrl-KP-8 (Up)
+    case 0x8E: return 0x4A; // Ctrl-KP--
+    case 0x8F: return 0x4C; // Ctrl-KP-5
+    case 0x90: return 0x4E; // Ctrl-KP-+
+    case 0x91: return 0x50; // Ctrl-KP-2 (Down)
+    case 0x92: return 0x52; // Ctrl-KP-0 (Insert)
+    case 0x93: return 0x53; // Ctrl-KP-. (Delete)
+    case 0x94: return 0x0F; // Ctrl-Tab
+    case 0x95: return 0x35; // Ctrl-KP-/
+    case 0x96: return 0x37; // Ctrl-KP-*
+    case 0x97: return 0x47; // Alt-Home
+    case 0x98: return 0x48; // Alt-Up
+    case 0x99: return 0x49; // Alt-PgUp
+    case 0x9B: return 0x4B; // Alt-Left
+    case 0x9D: return 0x4D; // Alt-Right
+    case 0x9F: return 0x4F; // Alt-End
+    case 0xA0: return 0x50; // Alt-Down
+    case 0xA1: return 0x51; // Alt-PgDn
+    case 0xA2: return 0x52; // Alt-Insert
+    case 0xA3: return 0x53; // Alt-Delete
+    case 0xA4: return 0x35; // Alt-KP-/
+    case 0xA5: return 0x0F; // Alt-Tab
+    case 0xA6: return 0x1C; // Alt-KP-Enter
+    default: return key & 0x7F;
+  }
 }
 
 static void poll_keyboard_bios(void)
@@ -141,10 +251,10 @@ static void poll_keyboard_bios(void)
   Uint8 scancode;
   Uint16 unicode;
 
-  while(bioskey(1))
+  while(extbioskey(1))
   {
-    res = bioskey(0);
-    scancode = res >> 8 & 0x7F;
+    res = extbioskey(0);
+    scancode = convert_bios_xt(res >> 8);
     unicode = res & 0xFF;
     kbd_unicode[scancode] = unicode;
     if(kbd_statmap[scancode] == KBD_RELEASED)
@@ -168,13 +278,40 @@ static void set_keystat(int key, int stat)
   kbd_statmap[key & 0x7F] = stat;
 }
 
+static bool non_bios_key(Uint8 key)
+{
+  switch(key)
+  {
+    case 0x1D: // Right Ctrl
+    case 0x9D: // Left Ctrl
+    case 0x38: // Right Alt
+    case 0xB8: // Left Alt
+    case 0x2A: // Left Shift
+    case 0x36: // Right Shift
+    case 0xDB: // Left Super (Windows)
+    case 0xDC: // Right Super (Windows)
+    case 0xDD: // Menu
+      return true;
+    // BIOS can't return keycodes >= 0x54 due to Alt/Ctrl keycode modification
+    // shenanigans, except for F11/F12 which are given alternate keycodes
+    case 0x57:
+    case 0x58:
+      return false;
+    default:
+      if((key & 0x7F) >= 0x54)
+        return true;
+      else
+        return false;
+  }
+}
+
 static bool process_keypress(int key)
 {
   struct buffered_status *status = store_status();
   enum keycode ikey = convert_ext_internal(key);
   Uint16 unicode = convert_ext_unicode(key);
 
-  if(get_keystat(key) != KBD_PRESSING)
+  if((get_keystat(key) != KBD_PRESSING) && !non_bios_key(key))
     return false;
   set_keystat(key, KBD_PRESSED);
 
@@ -234,7 +371,7 @@ static bool process_keyrelease(int key)
   struct buffered_status *status = store_status();
   enum keycode ikey = convert_ext_internal(key);
 
-  if(get_keystat(key) != KBD_PRESSED)
+  if((get_keystat(key) != KBD_PRESSED) && !non_bios_key(key))
     return false;
   set_keystat(key, KBD_RELEASED);
 
