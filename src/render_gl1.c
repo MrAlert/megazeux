@@ -270,10 +270,12 @@ static void gl1_render_graph(struct graphics_data *graphics)
 }
 
 static void gl1_render_cursor(struct graphics_data *graphics,
- Uint32 x, Uint32 y, Uint8 color, Uint8 lines, Uint8 offset)
+ Uint32 x, Uint32 y, Uint8 color, Uint8 lines, Uint8 offset, bool blink)
 {
   struct gl1_render_data *render_data = graphics->render_data;
 
+  if(!blink)
+    return;
   render_cursor(render_data->pixels, render_data->w * 4, 32, x, y,
    graphics->flat_intensity_palette[color], lines, offset);
 }

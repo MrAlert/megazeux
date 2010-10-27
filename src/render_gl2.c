@@ -628,7 +628,7 @@ static void gl2_render_graph(struct graphics_data *graphics)
 }
 
 static void gl2_render_cursor(struct graphics_data *graphics,
- Uint32 x, Uint32 y, Uint8 color, Uint8 lines, Uint8 offset)
+ Uint32 x, Uint32 y, Uint8 color, Uint8 lines, Uint8 offset, bool blink)
 {
   struct gl2_render_data *render_data = graphics->render_data;
   GLubyte *pal_base = &render_data->palette[color * 3];
@@ -646,6 +646,9 @@ static void gl2_render_cursor(struct graphics_data *graphics,
     pal_base[0], pal_base[1], pal_base[2], 255,
     pal_base[0], pal_base[1], pal_base[2], 255
   };
+
+  if(!blink)
+    return;
 
   gl2.glDisableClientState(GL_TEXTURE_COORD_ARRAY);
   gl2.glDisable(GL_TEXTURE_2D);

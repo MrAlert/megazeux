@@ -587,8 +587,7 @@ void update_screen(void)
   }
 
   graphics.renderer.render_graph(&graphics);
-  if(graphics.cursor_flipflop &&
-   (graphics.cursor_mode != cursor_mode_invisible))
+  if(graphics.cursor_mode != cursor_mode_invisible)
   {
     struct char_element *cursor_element =
      graphics.text_video + graphics.cursor_x + (graphics.cursor_y * SCREEN_W);
@@ -648,8 +647,11 @@ void update_screen(void)
     }
 
     graphics.renderer.render_cursor(&graphics,
-     graphics.cursor_x, graphics.cursor_y, cursor_color, lines, offset);
+     graphics.cursor_x, graphics.cursor_y, cursor_color, lines, offset,
+     graphics.cursor_flipflop);
   }
+  else
+    graphics.renderer.render_cursor(&graphics, 0, 0, 0, 0, 0, false);
   if(graphics.mouse_status)
   {
     int mouse_x, mouse_y;

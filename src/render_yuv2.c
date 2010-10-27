@@ -72,10 +72,12 @@ static void yuv2_render_graph(struct graphics_data *graphics)
 }
 
 static void yuv2_render_cursor(struct graphics_data *graphics,
- Uint32 x, Uint32 y, Uint8 color, Uint8 lines, Uint8 offset)
+ Uint32 x, Uint32 y, Uint8 color, Uint8 lines, Uint8 offset, bool blink)
 {
   struct yuv_render_data *render_data = graphics->render_data;
 
+  if(!blink)
+    return;
   SDL_LockYUVOverlay(render_data->overlay);
   render_cursor((Uint32 *)render_data->overlay->pixels[0],
    render_data->overlay->pitches[0], 16, x, y,

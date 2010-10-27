@@ -82,7 +82,7 @@ struct renderer
   void (*set_screen_coords)(struct graphics_data *, int, int, int *, int *);
   void (*render_graph)     (struct graphics_data *);
   void (*render_cursor)    (struct graphics_data *, Uint32, Uint32, Uint8,
-                             Uint8, Uint8);
+                             Uint8, Uint8, bool);
   void (*render_mouse)     (struct graphics_data *, Uint32, Uint32, Uint8,
                              Uint8);
   void (*sync_screen)      (struct graphics_data *);

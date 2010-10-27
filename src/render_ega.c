@@ -68,6 +68,11 @@ struct ega_render_data
   unsigned char flags;
   unsigned char oldmode;
   unsigned short vbsel;
+  Uint8 lines;
+  Uint8 offset;
+  unsigned char curpages;
+  Uint32 x;
+  Uint32 y;
 };
 
 static void ega_set_14p(void)
@@ -107,6 +112,30 @@ static void ega_cursor_off(void)
   __dpmi_regs reg;
   reg.x.ax = 0x0103;
   reg.x.cx = 0x1F00;
+  __dpmi_int(0x10, &reg);
+}
+
+static void ega_set_cursor_shape(Uint8 lines, Uint8 offset)
+{
+  __dpmi_regs reg;
+  if(!lines)
+  {
+    ega_cursor_off();
+    return;
+  }
+  reg.x.ax = 0x0103;
+  reg.h.ch = offset * 8 / 14;
+  reg.h.cl = (offset + lines) * 8 / 14 - 1;
+  __dpmi_int(0x10, &reg);
+}
+
+static void ega_set_cursor_pos(int page, Uint32 x, Uint32 y)
+{
+  __dpmi_regs reg;
+  reg.h.ah = 0x02;
+  reg.h.bh = page;
+  reg.h.dh = y;
+  reg.h.dl = x;
   __dpmi_int(0x10, &reg);
 }
 
@@ -227,6 +256,10 @@ static bool ega_set_video_mode(struct graphics_data *graphics,
 
   render_data->page = 0;
   render_data->smzx = 0;
+  render_data->lines = 255;
+  render_data->offset = 255;
+  render_data->x = 65535;
+  render_data->y = 65535;
 
   if(render_data->flags & TEXT_FLAGS_VGA)
     ega_set_14p();
@@ -325,9 +358,35 @@ static void ega_render_graph(struct graphics_data *graphics)
 }
 
 static void ega_render_cursor(struct graphics_data *graphics,
- Uint32 x, Uint32 y, Uint8 color, Uint8 lines, Uint8 offset)
+ Uint32 x, Uint32 y, Uint8 color, Uint8 lines, Uint8 offset, bool blink)
 {
-  // FIXME: Add cursor
+  struct ega_render_data *render_data = graphics->render_data;
+  unsigned long dest = ega_vb_page[render_data->page];
+  dest += x * 2 + 1;
+  dest += y * 160;
+  if((lines != render_data->lines) || (offset != render_data->offset))
+  {
+    ega_set_cursor_shape(lines, offset);
+    render_data->lines = lines;
+    render_data->offset = offset;
+    render_data->curpages = 4;
+  }
+  if(lines)
+  {
+    if((x != render_data->x) || (y != render_data->y))
+    {
+      render_data->x = x;
+      render_data->y = y;
+      render_data->curpages = 4;
+    }
+    if(render_data->curpages)
+    {
+      ega_set_cursor_pos(render_data->page, x, y);
+      render_data->curpages--;
+    }
+    _farsetsel(render_data->vbsel);
+    _farnspokeb(dest, (_farnspeekb(dest) & 0xF0) | (color & 0x0F));
+  }
 }
 
 static void ega_render_mouse(struct graphics_data *graphics,

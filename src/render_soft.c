@@ -128,13 +128,16 @@ static void soft_render_graph(struct graphics_data *graphics)
 }
 
 static void soft_render_cursor(struct graphics_data *graphics,
- Uint32 x, Uint32 y, Uint8 color, Uint8 lines, Uint8 offset)
+ Uint32 x, Uint32 y, Uint8 color, Uint8 lines, Uint8 offset, bool blink)
 {
   SDL_Surface *screen = graphics->render_data;
   Uint32 *pixels = (Uint32 *)screen->pixels;
   Uint32 pitch = screen->pitch;
   Uint32 bpp = screen->format->BitsPerPixel;
   Uint32 flatcolor;
+
+  if(!blink)
+    return;
 
   pixels += pitch * ((screen->h - 350) / 8);
   pixels += (screen->w - 640) * bpp / 64;

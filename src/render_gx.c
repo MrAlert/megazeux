@@ -711,10 +711,13 @@ static void gx_render_graph(struct graphics_data *graphics)
 }
 
 static void gx_render_cursor(struct graphics_data *graphics,
- Uint32 x, Uint32 y, Uint8 color, Uint8 lines, Uint8 offset)
+ Uint32 x, Uint32 y, Uint8 color, Uint8 lines, Uint8 offset, bool blink)
 {
   struct gx_render_data *render_data = graphics->render_data;
   GXColor *pal = render_data->palette;
+
+  if(!blink)
+    return;
 
   GX_SetChanMatColor(GX_COLOR0A0, pal[color]);
   GX_Begin(GX_QUADS, GX_VTXFMT0, 4);
