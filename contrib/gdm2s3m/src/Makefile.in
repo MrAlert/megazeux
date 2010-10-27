@@ -21,7 +21,9 @@ ${gdm2s3m_obj}/%.o: ${gdm2s3m_src}/%.c
 	$(if ${V},,@echo "  CC      " $<)
 	${CC} -MD ${CFLAGS} ${gdm2s3m_cflags} -c $< -o $@
 
+ifneq (${NODEPS},1)
 -include $(gdm2s3m_objs:.o=.d)
+endif
 
 ${gdm2s3m_objs}: $(filter-out $(wildcard ${gdm2s3m_obj}), ${gdm2s3m_obj})
 

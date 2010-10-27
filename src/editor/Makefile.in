@@ -34,7 +34,9 @@ editor_objs := \
   ${editor_obj}/robo_ed.o ${editor_obj}/robot.o ${editor_obj}/sfx_edit.o \
   ${editor_obj}/window.o ${editor_obj}/world.o
 
+ifneq (${NODEPS},1)
 -include ${editor_objs:.o=.d}
+endif
 
 ${editor_objs}: $(filter-out $(wildcard ${editor_obj}), ${editor_obj})
 

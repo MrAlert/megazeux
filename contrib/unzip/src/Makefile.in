@@ -19,7 +19,9 @@ ${unzip_obj}/%.o: ${unzip_src}/%.c
 	$(if ${V},,@echo "  CC      " $<)
 	${CC} -MD ${CFLAGS} ${unzip_cflags} -I${PREFIX}/include -c $< -o $@
 
+ifneq (${NODEPS},1)
 -include $(unzip_objs:.o=.d)
+endif
 
 ${unzip_objs}: $(filter-out $(wildcard ${unzip_obj}), ${unzip_obj})
 

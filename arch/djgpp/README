@@ -30,9 +30,8 @@ correct prefix.
 DJGPP 2.0.3 does not implement snprintf(), so DJGPP 2.0.4 beta may be required
 to build a safe version of MegaZeux.
 
-"mkdir src/.build" and other such commands may fail during make. If this
-happens, you will have to manually create the needed directories.
+"mkdir src/.build" and other such commands may fail during make under DOSEMU.
+If this happens, you will have to manually create the needed directories.
 
 Running make under Linux after building MegaZeux under DOSEMU will most likely
-fail due to weird dependency tracking files. Deleting the various .build
-directories fixes this.
+fail due to weird dependency tracking files. Set NODEPS=1 to ignore these files.

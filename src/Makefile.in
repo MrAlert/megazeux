@@ -259,7 +259,9 @@ endif
 
 core_objs := ${core_cobjs} ${core_cxxobjs}
 
+ifneq (${NODEPS},1)
 -include ${core_objs:.o=.d}
+endif
 
 ${core_objs}: $(filter-out $(wildcard ${core_obj}), ${core_obj})
 ${core_objs}: $(filter-out $(wildcard ${network_obj}), ${network_obj})
@@ -296,7 +298,9 @@ mzx_objs += arch/darwin/SDLMain.o
 mzx_ldflags += -framework Cocoa
 endif
 
+ifneq (${NODEPS},1)
 -include ${mzx_objs:.o=.d}
+endif
 
 ifeq (${EMBED_ICONS},1)
 mzx_objs += ${icons}
@@ -337,7 +341,9 @@ mzxrun_objs += arch/darwin/SDLMain.o
 mzxrun_ldflags += -framework Cocoa
 endif
 
+ifneq (${NODEPS},1)
 -include ${mzxrun_objs:.o=.d}
+endif
 
 ifeq (${EMBED_ICONS},1)
 mzxrun_objs += ${icons}

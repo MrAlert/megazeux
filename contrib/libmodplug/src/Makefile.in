@@ -30,7 +30,9 @@ ${libmodplug_obj}/%.o: ${libmodplug_src}/%.cpp
 	$(if ${V},,@echo "  CXX     " $<)
 	${CXX} -MD ${CXXFLAGS} ${libmodplug_cflags} -c $< -o $@
 
+ifneq (${NODEPS},1)
 -include $(libmodplug_objs:.o=.d)
+endif
 
 ${libmodplug_objs}: $(filter-out $(wildcard ${libmodplug_obj}), ${libmodplug_obj})
 
