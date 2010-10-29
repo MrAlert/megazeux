@@ -18,6 +18,7 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
+#include <errno.h>
 #include <pc.h>
 #include <dos.h>
 #include <dpmi.h>
@@ -127,10 +128,14 @@ extern Uint32 timer_normal;
 
 extern __dpmi_paddr kbd_old_handler;
 
+static bool yieldable;
+
 void delay(Uint32 ms)
 {
   ms += timer_ticks;
-  while(timer_ticks < ms);
+  while(timer_ticks < ms)
+    if(yieldable)
+      __dpmi_yield();
 }
 
 Uint32 get_ticks(void)
@@ -153,6 +158,11 @@ bool platform_init(void)
 
   // Disable exception on Ctrl-C
   __djgpp_set_ctrl_c(0);
+
+  // Check if DPMI yield function is supported
+  errno = 0;
+  __dpmi_yield();
+  yieldable = (errno != ENOSYS);
 
   int_ds = _my_ds();
 
