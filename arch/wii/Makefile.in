@@ -28,9 +28,8 @@ STRIP  = /bin/true
 # Override library paths
 #
 
-VORBIS_CFLAGS  = -Iarch/wii/libvorbis/include -Iarch/wii/libogg/include
-VORBIS_LDFLAGS = -Larch/wii/libvorbis/lib -Larch/wii/libogg/lib \
-                 -lvorbisfile -lvorbis -logg
+LIBPNG_CFLAGS  =
+LIBPNG_LDFLAGS = -lpng -lz
 
 EXTRA_INCLUDES = -I$(DEVKITPRO)/libogc/include
 EXTRA_LIBS     = -L$(DEVKITPRO)/libogc/lib/wii -lfat -lasnd -lwiikeyboard \

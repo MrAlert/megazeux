@@ -25,6 +25,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <malloc.h>
+#include <stdio.h>
 #define BOOL _BOOL
 #include <ogc/system.h>
 #include <ogc/conf.h>
@@ -32,6 +33,9 @@
 #include <ogc/video.h>
 #include <ogc/gx.h>
 #include <ogc/gu.h>
+#include <ogc/consol.h>
+#include <ogc/mutex.h>
+#include <ogc/cond.h>
 #undef BOOL
 
 #define DEFAULT_FIFO_SIZE (1024 * 1024)
@@ -316,19 +320,25 @@ static bool gx_init_video(struct graphics_data *graphics,
   GX_SetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_POS_XY, GX_S16, 0);
   GX_SetVtxAttrFmt(GX_VTXFMT0, GX_VA_TEX0, GX_TEX_ST, GX_F32, 0);
 
-  GX_SetNumChans(1);
+  GX_SetNumChans(0);
   GX_SetNumTexGens(1);
   GX_SetChanCtrl(GX_COLOR0A0, GX_DISABLE, GX_SRC_REG, GX_SRC_REG, GX_LIGHTNULL,
    GX_DF_NONE, GX_AF_NONE);
   GX_SetTevOp(GX_TEVSTAGE0, GX_PASSCLR);
-  GX_SetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD0, GX_TEXMAP0, GX_COLOR0A0);
+  GX_SetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD0, GX_TEXMAP0, GX_COLORNULL);
   GX_SetTexCoordGen(GX_TEXCOORD0, GX_TG_MTX2x4, GX_TG_TEX0, GX_IDENTITY);
+  GX_SetTevColorOp(GX_TEVSTAGE0, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, GX_TRUE,
+   GX_TEVPREV);
+  GX_SetTevAlphaOp(GX_TEVSTAGE0, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, GX_TRUE,
+   GX_TEVPREV);
+  GX_SetTevAlphaIn(GX_TEVSTAGE0, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO,
+   GX_CA_ZERO);
 
   guMtxIdentity(identmtx);
   GX_LoadPosMtxImm(identmtx, GX_PNMTX0);
 
   GX_SetViewport(0, 0, sw, sh, 0, 1);
-  GX_SetAlphaUpdate(GX_TRUE);
+  GX_SetAlphaUpdate(GX_FALSE);
   GX_SetCullMode(GX_CULL_NONE);
 
   GX_CopyDisp(render_data->xfb[1], GX_TRUE);
@@ -501,11 +511,12 @@ static void gx_render_graph(struct graphics_data *graphics)
     GX_InvalidateTexAll();
   }
 
-  GX_SetBlendMode(GX_BM_BLEND, GX_BL_SRCALPHA, GX_BL_INVSRCALPHA, GX_LO_CLEAR);
+  GX_SetBlendMode(GX_BM_NONE, GX_BL_ZERO, GX_BL_ZERO, GX_LO_CLEAR);
 
   if(graphics->screen_mode > 1)
   {
-    GX_SetTevOp(GX_TEVSTAGE0, GX_REPLACE);
+    GX_SetTevColorIn(GX_TEVSTAGE0, GX_CC_ZERO, GX_CC_ZERO, GX_CC_ZERO,
+     GX_CC_TEXC);
     if(render_data->paldirty)
     {
       if(!render_data->chrdirty)
@@ -517,7 +528,7 @@ static void gx_render_graph(struct graphics_data *graphics)
   }
   else
   {
-    GX_SetTevOp(GX_TEVSTAGE0, GX_PASSCLR);
+    GX_SetTevColorIn(GX_TEVSTAGE0, GX_CC_C0, GX_CC_C1, GX_CC_TEXA, GX_CC_ZERO);
     GX_LoadTlut(&render_data->mzxtlutobj, GX_TLUT0);
     GX_LoadTexObj(&render_data->chartex, GX_TEXMAP0);
   }
@@ -532,29 +543,8 @@ static void gx_render_graph(struct graphics_data *graphics)
       {
         for(x = 0; x < 80; x++)
         {
-          GX_SetChanMatColor(GX_COLOR0A0, pal[src->bg_color]);
-          GX_Begin(GX_QUADS, GX_VTXFMT0, 4);
-            GX_Position2s16(x * 8, y * 14);
-            GX_TexCoord2f32(0, 0);
-            GX_Position2s16(x * 8 + 8, y * 14);
-            GX_TexCoord2f32(0, 0);
-            GX_Position2s16(x * 8 + 8, y * 14 + 14);
-            GX_TexCoord2f32(0, 0);
-            GX_Position2s16(x * 8, y * 14 + 14);
-            GX_TexCoord2f32(0, 0);
-          GX_End();
-          src++;
-        }
-      }
-
-      GX_SetTevOp(GX_TEVSTAGE0, GX_MODULATE);
-
-      src = graphics->text_video;
-      for(y = 0; y < 25; y++)
-      {
-        for(x = 0; x < 80; x++)
-        {
-          GX_SetChanMatColor(GX_COLOR0A0, pal[src->fg_color]);
+          GX_SetTevColor(GX_TEVREG0, pal[src->bg_color]);
+          GX_SetTevColor(GX_TEVREG1, pal[src->fg_color]);
           u = ((int)src->char_value & 0x1f) / 32.0;
           v = ((int)src->char_value >> 5) / 32.0;
           GX_Begin(GX_QUADS, GX_VTXFMT0, 4);
@@ -578,29 +568,8 @@ static void gx_render_graph(struct graphics_data *graphics)
       {
         for(x = 0; x < 80; x++)
         {
-          GX_SetChanMatColor(GX_COLOR0A0, pal[(src->bg_color & 0xF) * 0x11]);
-          GX_Begin(GX_QUADS, GX_VTXFMT0, 4);
-            GX_Position2s16(x * 8, y * 14);
-            GX_TexCoord2f32(0, 0);
-            GX_Position2s16(x * 8 + 8, y * 14);
-            GX_TexCoord2f32(0, 0);
-            GX_Position2s16(x * 8 + 8, y * 14 + 14);
-            GX_TexCoord2f32(0, 0);
-            GX_Position2s16(x * 8, y * 14 + 14);
-            GX_TexCoord2f32(0, 0);
-          GX_End();
-          src++;
-        }
-      }
-
-      GX_SetTevOp(GX_TEVSTAGE0, GX_MODULATE);
-
-      src = graphics->text_video;
-      for(y = 0; y < 25; y++)
-      {
-        for(x = 0; x < 80; x++)
-        {
-          GX_SetChanMatColor(GX_COLOR0A0, pal[(src->fg_color & 0xF) * 0x11]);
+          GX_SetTevColor(GX_TEVREG0, pal[(src->bg_color & 0xF) * 0x11]);
+          GX_SetTevColor(GX_TEVREG1, pal[(src->fg_color & 0xF) * 0x11]);
           u = ((int)src->char_value & 0x1f) / 32.0;
           v = ((int)src->char_value >> 5) / 32.0 + 0.5;
           GX_Begin(GX_QUADS, GX_VTXFMT0, 4);
@@ -707,7 +676,7 @@ static void gx_render_graph(struct graphics_data *graphics)
     }
   }
 
-  GX_SetTevOp(GX_TEVSTAGE0, GX_PASSCLR);
+  GX_SetTevColorIn(GX_TEVSTAGE0, GX_CC_ZERO, GX_CC_ZERO, GX_CC_ZERO, GX_CC_C0);
 }
 
 static void gx_render_cursor(struct graphics_data *graphics,
@@ -716,7 +685,7 @@ static void gx_render_cursor(struct graphics_data *graphics,
   struct gx_render_data *render_data = graphics->render_data;
   GXColor *pal = render_data->palette;
 
-  GX_SetChanMatColor(GX_COLOR0A0, pal[color]);
+  GX_SetTevColor(GX_TEVREG0, pal[color]);
   GX_Begin(GX_QUADS, GX_VTXFMT0, 4);
     GX_Position2s16(x * 8, y * 14 + offset);
     GX_TexCoord2f32(0, 0);
@@ -736,7 +705,7 @@ static void gx_render_mouse(struct graphics_data *graphics,
 
   GX_SetBlendMode(GX_BM_BLEND, GX_BL_INVDSTCLR, GX_BL_ZERO, GX_LO_CLEAR);
 
-  GX_SetChanMatColor(GX_COLOR0A0, white);
+  GX_SetTevColor(GX_TEVREG0, white);
   GX_Begin(GX_QUADS, GX_VTXFMT0, 4);
     GX_Position2s16(x, y);
     GX_TexCoord2f32(0, 0);
@@ -747,6 +716,85 @@ static void gx_render_mouse(struct graphics_data *graphics,
     GX_Position2s16(x, y + h);
     GX_TexCoord2f32(0, 0);
   GX_End();
+}
+
+mutex_t gx_drawdone_mutex = LWP_MUTEX_NULL;
+cond_t gx_drawdone_cond;
+GXDrawDoneCallback gx_drawdone_old_cb;
+const struct timespec gx_drawdone_time = {5, 0};
+
+static void gx_drawdone_debug_cb(void)
+{
+  LWP_MutexLock(gx_drawdone_mutex);
+  LWP_CondBroadcast(gx_drawdone_cond);
+  LWP_MutexUnlock(gx_drawdone_mutex);
+  if(gx_drawdone_old_cb)
+    gx_drawdone_old_cb();
+}
+
+static const char *flagstr(int flag, const char *str)
+{
+  if(flag)
+    return str;
+  else
+    return "";
+}
+
+static void gx_drawdone_debug(struct gx_render_data *render_data)
+{
+  if(gx_drawdone_mutex == LWP_MUTEX_NULL)
+  {
+    if(LWP_MutexInit(&gx_drawdone_mutex, 0) < 0)
+      return;
+    if(LWP_CondInit(&gx_drawdone_cond) < 0)
+    {
+      LWP_MutexDestroy(gx_drawdone_mutex);
+      gx_drawdone_mutex = LWP_MUTEX_NULL;
+      return;
+    }
+    LWP_MutexLock(gx_drawdone_mutex);
+    gx_drawdone_old_cb = GX_SetDrawDoneCallback(gx_drawdone_debug_cb);
+  }
+  GX_SetDrawDone();
+  if(LWP_CondTimedWait(gx_drawdone_cond, gx_drawdone_mutex, &gx_drawdone_time)
+   < 0)
+  {
+    void *fb = VIDEO_GetNextFramebuffer();
+    u8 hi, lo, rdidle, cmdidle, brk;
+    void *baseptr, *rdptr, *wtptr, *endptr;
+    u8 *dumpptr;
+    int i;
+    GXFifoObj fifo;
+    CON_Init(fb, 40, 30, render_data->rmode->fbWidth - 80,
+     render_data->rmode->xfbHeight - 60, render_data->rmode->fbWidth
+     * VI_DISPLAY_PIX_SZ);
+    printf("GX crash!\n\n");
+    GX_GetGPStatus(&hi, &lo, &rdidle, &cmdidle, &brk);
+    printf("GP status :%s%s%s%s%s\n", flagstr(hi, " HIGH"),
+     flagstr(lo, " LOW"), flagstr(rdidle, " READIDLE"),
+     flagstr(cmdidle, " CMDIDLE"), flagstr(brk, " BREAK"));
+    GX_GetGPFifo(&fifo);
+    baseptr = GX_GetFifoBase(&fifo);
+    GX_GetFifoPtrs(&fifo, &rdptr, &wtptr);
+    endptr = (u8 *)baseptr + GX_GetFifoSize(&fifo);
+    printf("FIFO base : %p\n", baseptr);
+    printf("FIFO read : %p\n", rdptr);
+    printf("FIFO write: %p\n", wtptr);
+    printf("FIFO end  : %p\n", endptr);
+    printf("FIFO dump :");
+    dumpptr = (u8 *)rdptr - 16;
+    if(dumpptr < (u8 *)baseptr)
+      dumpptr = baseptr;
+    for(i = 0; i < 32 && dumpptr + i < (u8 *)endptr; i++)
+    {
+      if(dumpptr + i == rdptr)
+        printf(">%02X", dumpptr[i]);
+      else
+        printf(" %02X", dumpptr[i]);
+    }
+    printf("\n");
+    for(;;);
+  }
 }
 
 static void gx_sync_screen(struct graphics_data *graphics)
@@ -764,7 +812,9 @@ static void gx_sync_screen(struct graphics_data *graphics)
   GX_CopyTex(render_data->scaleimg, GX_TRUE);
   GX_Flush();
   GX_PixModeSync();
-  GX_SetTevOp(GX_TEVSTAGE0, GX_REPLACE);
+  GX_SetBlendMode(GX_BM_NONE, GX_BL_ZERO, GX_BL_ZERO, GX_LO_CLEAR);
+  GX_SetTevColorIn(GX_TEVSTAGE0, GX_CC_ZERO, GX_CC_ZERO, GX_CC_ZERO,
+   GX_CC_TEXC);
   GX_LoadTexObj(&render_data->scaletex, GX_TEXMAP0);
   GX_Begin(GX_QUADS, GX_VTXFMT0, 4);
     GX_Position2s16(render_data->sx0, render_data->sy0);
@@ -776,7 +826,8 @@ static void gx_sync_screen(struct graphics_data *graphics)
     GX_Position2s16(render_data->sx0, render_data->sy1);
     GX_TexCoord2f32(SCALE_TEX_X0, SCALE_TEX_Y1);
   GX_End();
-  GX_DrawDone();
+  //GX_DrawDone();
+  gx_drawdone_debug(render_data);
   GX_SetZMode(GX_FALSE, GX_ALWAYS, GX_FALSE);
   GX_SetColorUpdate(GX_TRUE);
   GX_SetCopyFilter(render_data->rmode->aa, render_data->rmode->sample_pattern,
