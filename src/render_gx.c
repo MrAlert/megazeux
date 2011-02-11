@@ -371,31 +371,56 @@ static bool gx_set_video_mode(struct graphics_data *graphics,
 {
   struct gx_render_data *render_data = graphics->render_data;
   float x, y, w, h, scale, xscale, yscale;
-  int fh, fs, sw, sh, dw, dh;
+  int sw, sh, swr, shr, dwr, dhr, dw, dh;
 
   if(fullscreen)
     scale = 8.0 / 9.0;
   else
     scale = 8.0 / 10.0;
 
+  sw = 720;
   if(render_data->rmode->viTVMode == VI_TVMODE_PAL_INT)
-    fh = 574;
+    sh = 574;
   else
-    fh = 480;
-  fs = fh * 720;
+    sh = 480;
 
   if(CONF_GetAspectRatio() == CONF_ASPECT_16_9)
   {
-    sw = fs * 16;
-    sh = fs * 9;
+    swr = 16;
+    shr = 9;
   }
   else
   {
-    sw = fs * 4;
-    sh = fs * 3;
+    swr = 4;
+    shr = 3;
   }
 
-  fix_viewport_ratio(sw, sh, &dw, &dh, render_data->ratio);
+  dw = sw;
+  dh = sh;
+
+  if(render_data->ratio != RATIO_STRETCH)
+  {
+    if(render_data->ratio == RATIO_CLASSIC_4_3)
+    {
+      dwr = 4;
+      dhr = 3;
+    }
+    else
+    {
+      dwr = 64;
+      dhr = 35;
+    }
+    if(swr * dhr > dwr * shr)
+    {
+      dw = sw * dwr * shr / swr / dhr;
+      dh = sh;
+    }
+    else
+    {
+      dw = sw;
+      dh = dh * dhr * swr / shr / dwr;
+    }
+  }
 
   if(render_data->rmode->viWidth > render_data->rmode->fbWidth)
     xscale = (float)render_data->rmode->fbWidth / render_data->rmode->viWidth;
@@ -403,10 +428,10 @@ static bool gx_set_video_mode(struct graphics_data *graphics,
     xscale = 1.0;
   yscale = (float)render_data->rmode->efbHeight / render_data->rmode->viHeight;
 
-  w = (float)dw * 720 / sw * scale;
-  h = (float)dh * fh / sh * scale;
-  x = (720 - w) / 2 - render_data->rmode->viXOrigin;
-  y = (fh - h) / 2 - render_data->rmode->viYOrigin;
+  w = (float)dw * scale;
+  h = (float)dh * scale;
+  x = (sw - w) / 2 - render_data->rmode->viXOrigin;
+  y = (sh - h) / 2 - render_data->rmode->viYOrigin;
   w *= xscale; h *= yscale; x *= xscale; y *= yscale;
 
   render_data->sx0 = x;
@@ -718,15 +743,17 @@ static void gx_render_mouse(struct graphics_data *graphics,
   GX_End();
 }
 
-mutex_t gx_drawdone_mutex = LWP_MUTEX_NULL;
-cond_t gx_drawdone_cond;
-GXDrawDoneCallback gx_drawdone_old_cb;
-const struct timespec gx_drawdone_time = {5, 0};
+static mutex_t gx_drawdone_mutex = LWP_MUTEX_NULL;
+static cond_t gx_drawdone_cond;
+static GXDrawDoneCallback gx_drawdone_old_cb;
+static const struct timespec gx_drawdone_time = {5, 0};
+static int gx_drawdone_count = 0;
 
 static void gx_drawdone_debug_cb(void)
 {
   LWP_MutexLock(gx_drawdone_mutex);
   LWP_CondBroadcast(gx_drawdone_cond);
+  gx_drawdone_count++;
   LWP_MutexUnlock(gx_drawdone_mutex);
   if(gx_drawdone_old_cb)
     gx_drawdone_old_cb();
@@ -756,36 +783,38 @@ static void gx_drawdone_debug(struct gx_render_data *render_data)
     gx_drawdone_old_cb = GX_SetDrawDoneCallback(gx_drawdone_debug_cb);
   }
   GX_SetDrawDone();
-  if(LWP_CondTimedWait(gx_drawdone_cond, gx_drawdone_mutex, &gx_drawdone_time)
-   < 0)
+  if(LWP_CondTimedWait(gx_drawdone_cond, gx_drawdone_mutex, &gx_drawdone_time))
   {
-    void *fb = VIDEO_GetNextFramebuffer();
+    u8 *fb = VIDEO_GetNextFramebuffer();
     u8 hi, lo, rdidle, cmdidle, brk;
     void *baseptr, *rdptr, *wtptr, *endptr;
     u8 *dumpptr;
     int i;
     GXFifoObj fifo;
-    CON_Init(fb, 40, 30, render_data->rmode->fbWidth - 80,
+    fb += 40 * VI_DISPLAY_PIX_SZ;
+    fb += 30 * render_data->rmode->fbWidth * VI_DISPLAY_PIX_SZ;
+    CON_Init(fb, 0, 0, render_data->rmode->fbWidth - 80,
      render_data->rmode->xfbHeight - 60, render_data->rmode->fbWidth
      * VI_DISPLAY_PIX_SZ);
     printf("GX crash!\n\n");
     GX_GetGPStatus(&hi, &lo, &rdidle, &cmdidle, &brk);
-    printf("GP status :%s%s%s%s%s\n", flagstr(hi, " HIGH"),
+    printf("Frame count: %d\n\n", gx_drawdone_count);
+    printf("GP status  :%s%s%s%s%s\n", flagstr(hi, " HIGH"),
      flagstr(lo, " LOW"), flagstr(rdidle, " READIDLE"),
      flagstr(cmdidle, " CMDIDLE"), flagstr(brk, " BREAK"));
     GX_GetGPFifo(&fifo);
     baseptr = GX_GetFifoBase(&fifo);
     GX_GetFifoPtrs(&fifo, &rdptr, &wtptr);
     endptr = (u8 *)baseptr + GX_GetFifoSize(&fifo);
-    printf("FIFO base : %p\n", baseptr);
-    printf("FIFO read : %p\n", rdptr);
-    printf("FIFO write: %p\n", wtptr);
-    printf("FIFO end  : %p\n", endptr);
-    printf("FIFO dump :");
-    dumpptr = (u8 *)rdptr - 16;
+    printf("FIFO base  : %p\n", baseptr);
+    printf("FIFO read  : %p\n", rdptr);
+    printf("FIFO write : %p\n", wtptr);
+    printf("FIFO end   : %p\n", endptr);
+    printf("FIFO dump  :\n");
+    dumpptr = (u8 *)rdptr - 64;
     if(dumpptr < (u8 *)baseptr)
       dumpptr = baseptr;
-    for(i = 0; i < 32 && dumpptr + i < (u8 *)endptr; i++)
+    for(i = 0; i < 128 && dumpptr + i < (u8 *)endptr; i++)
     {
       if(dumpptr + i == rdptr)
         printf(">%02X", dumpptr[i]);
