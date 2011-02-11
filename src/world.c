@@ -22,6 +22,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <assert.h>
 #include <sys/stat.h>
 
 #ifndef _MSC_VER
@@ -185,7 +186,7 @@ static void decrypt(const char *file_name)
 
   int meter_target, meter_curr = 0;
 
-  source = fopen(file_name, "rb");
+  source = fopen_unsafe(file_name, "rb");
   file_length = ftell_and_rewind(source);
 
   meter_target = file_length + (file_length - 15) + 4;
@@ -202,7 +203,7 @@ static void decrypt(const char *file_name)
 
   src_ptr += 25;
 
-  dest = fopen(file_name, "wb");
+  dest = fopen_unsafe(file_name, "wb");
   if(!dest)
   {
     error("Cannot decrypt write-protected world.", 1, 8, 0x0DD5);
@@ -370,7 +371,7 @@ int save_world(struct world *mzx_world, const char *file, int savegame)
 #ifdef CONFIG_DEBYTECODE
   if(!savegame)
   {
-    fp = fopen(file, "rb");
+    fp = fopen_unsafe(file, "rb");
     if(fp)
     {
       if(!fseek(fp, 0x1A, SEEK_SET))
@@ -391,7 +392,7 @@ int save_world(struct world *mzx_world, const char *file, int savegame)
   }
 #endif
 
-  fp = fopen(file, "wb");
+  fp = fopen_unsafe(file, "wb");
   if(!fp)
   {
     error("Error saving world", 1, 8, 0x0D01);
@@ -587,9 +588,13 @@ int save_world(struct world *mzx_world, const char *file, int savegame)
         fwrite(mzx_world->input_file_name, len, 1, fp);
     }
 
-    if(mzx_world->input_file)
+    if(!mzx_world->input_is_dir && mzx_world->input_file)
     {
       fputd(ftell(mzx_world->input_file), fp);
+    }
+    else if(mzx_world->input_is_dir)
+    {
+      fputd(dir_tell(&mzx_world->input_directory), fp);
     }
     else
     {
@@ -957,7 +962,7 @@ __editor_maybe_static FILE *try_load_world(const char *file,
   FILE *fp;
   int v;
 
-  fp = fopen(file, "rb");
+  fp = fopen_unsafe(file, "rb");
   if(!fp)
   {
     error("Error loading world", 1, 8, 0x0D01);
@@ -1327,19 +1332,34 @@ static void load_world(struct world *mzx_world, FILE *fp, const char *file,
       mzx_world->input_file_name[len] = 0;
     }
 
-    if(mzx_world->input_file_name[0] != '\0')
+    if(mzx_world->input_file_name[0])
     {
-      mzx_world->input_file =
-       fsafeopen(mzx_world->input_file_name, "rb");
+      char *translated_path = cmalloc(MAX_PATH);
+      int err;
 
-      if(mzx_world->input_file)
+      mzx_world->input_is_dir = false;
+
+      err = fsafetranslate(mzx_world->input_file_name, translated_path);
+      if(err == -FSAFE_MATCHED_DIRECTORY)
       {
-        fseek(mzx_world->input_file, fgetd(fp), SEEK_SET);
+        if(dir_open(&mzx_world->input_directory, translated_path))
+        {
+          dir_seek(&mzx_world->input_directory, fgetd(fp));
+          mzx_world->input_is_dir = true;
+        }
+        else
+          fseek(fp, 4, SEEK_CUR);
       }
-      else
+      else if(err == -FSAFE_SUCCESS)
       {
-        fseek(fp, 4, SEEK_CUR);
+        mzx_world->input_file = fopen_unsafe(translated_path, "rb");
+        if(mzx_world->input_file)
+          fseek(mzx_world->input_file, fgetd(fp), SEEK_SET);
+        else
+          fseek(fp, 4, SEEK_CUR);
       }
+
+      free(translated_path);
     }
     else
     {
@@ -1356,7 +1376,7 @@ static void load_world(struct world *mzx_world, FILE *fp, const char *file,
       mzx_world->output_file_name[len] = 0;
     }
 
-    if(mzx_world->output_file_name[0] != '\0')
+    if(mzx_world->output_file_name[0])
     {
       mzx_world->output_file =
        fsafeopen(mzx_world->output_file_name, "ab");
@@ -1527,10 +1547,9 @@ __editor_maybe_static void default_global_data(struct world *mzx_world)
   mzx_world->num_sprites = MAX_SPRITES;
   mzx_world->sprite_list = ccalloc(MAX_SPRITES, sizeof(struct sprite *));
 
-  for(i = 0; i < 256; i++)
+  for(i = 0; i < MAX_SPRITES; i++)
   {
-    mzx_world->sprite_list[i] = cmalloc(sizeof(struct sprite));
-    memset(mzx_world->sprite_list[i], 0, sizeof(struct sprite));
+    mzx_world->sprite_list[i] = ccalloc(1, sizeof(struct sprite));
   }
 
   mzx_world->collision_list = ccalloc(MAX_SPRITES, sizeof(int));
@@ -1608,8 +1627,9 @@ __editor_maybe_static void default_global_data(struct world *mzx_world)
   mzx_world->lock_speed = 0;
   mzx_world->mzx_speed = mzx_world->default_speed;
 
-  mzx_world->input_file = NULL;
-  mzx_world->output_file = NULL;
+  assert(mzx_world->input_file == NULL);
+  assert(mzx_world->output_file == NULL);
+  assert(mzx_world->input_is_dir == false);
 
   mzx_world->target_where = TARGET_NONE;
 }
@@ -1708,10 +1728,15 @@ void clear_world(struct world *mzx_world)
 
   clear_robot_contents(&mzx_world->global_robot);
 
-  if(mzx_world->input_file)
+  if(!mzx_world->input_is_dir && mzx_world->input_file)
   {
     fclose(mzx_world->input_file);
     mzx_world->input_file = NULL;
+  }
+  else if(mzx_world->input_is_dir)
+  {
+    dir_close(&mzx_world->input_directory);
+    mzx_world->input_is_dir = false;
   }
 
   if(mzx_world->output_file)
@@ -1730,7 +1755,6 @@ void clear_world(struct world *mzx_world)
 void clear_global_data(struct world *mzx_world)
 {
   int i;
-  int num_sprites = mzx_world->num_sprites;
   int num_counters = mzx_world->num_counters;
   int num_strings = mzx_world->num_strings;
   struct counter **counter_list = mzx_world->counter_list;
@@ -1762,7 +1786,7 @@ void clear_global_data(struct world *mzx_world)
   mzx_world->num_strings = 0;
   mzx_world->num_strings_allocated = 0;
 
-  for(i = 0; i < num_sprites; i++)
+  for(i = 0; i < MAX_SPRITES; i++)
   {
     free(sprite_list[i]);
   }
@@ -1774,6 +1798,9 @@ void clear_global_data(struct world *mzx_world)
   free(mzx_world->collision_list);
   mzx_world->collision_list = NULL;
   mzx_world->collision_count = 0;
+
+  mzx_world->active_sprites = 0;
+  mzx_world->sprite_y_order = 0;
 
   mzx_world->vlayer_size = 0;
   mzx_world->vlayer_width = 0;

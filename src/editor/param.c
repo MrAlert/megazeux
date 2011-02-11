@@ -710,7 +710,7 @@ static int pe_ghost(struct world *mzx_world, int param)
 static int pe_dragon(struct world *mzx_world, int param)
 {
   int fire_rate = (param & 0x03) + 1;
-  int hp = ((param >> 5) & 0x03) + 1;
+  int hp = ((param >> 5) & 0x07) + 1;
   int check_results[1] = { ((param >> 2) & 0x01) };
   struct dialog di;
   struct element *elements[5];
@@ -777,7 +777,7 @@ static int pe_fish(struct world *mzx_world, int param)
 
 static int pe_shark(struct world *mzx_world, int param)
 {
-  int intel = (param & 0x03) + 1;
+  int intel = (param & 0x07) + 1;
   int fire_rate = ((param >> 5) & 0x03) + 1;
   int fires = ((param >> 3) & 0x03);
   struct dialog di;
@@ -811,7 +811,7 @@ static int pe_shark(struct world *mzx_world, int param)
 
 static int pe_spider(struct world *mzx_world, int param)
 {
-  int intel = (param & 0x03) + 1;
+  int intel = (param & 0x07) + 1;
   int web = ((param >> 3) & 0x03);
   int check_results[2] =
   {

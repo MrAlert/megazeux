@@ -1291,7 +1291,7 @@ static int save_bc_read(struct world *mzx_world,
 static int fread_read(struct world *mzx_world,
  const struct function_counter *counter, const char *name, int id)
 {
-  if(mzx_world->input_file)
+  if(!mzx_world->input_is_dir && mzx_world->input_file)
     return fgetc(mzx_world->input_file);
   return -1;
 }
@@ -1299,7 +1299,7 @@ static int fread_read(struct world *mzx_world,
 static int fread_counter_read(struct world *mzx_world,
  const struct function_counter *counter, const char *name, int id)
 {
-  if(mzx_world->input_file)
+  if(!mzx_world->input_is_dir && mzx_world->input_file)
   {
     if(mzx_world->version < 0x0252)
       return fgetw(mzx_world->input_file);
@@ -1312,8 +1312,10 @@ static int fread_counter_read(struct world *mzx_world,
 static int fread_pos_read(struct world *mzx_world,
  const struct function_counter *counter, const char *name, int id)
 {
-  if(mzx_world->input_file)
+  if(!mzx_world->input_is_dir && mzx_world->input_file)
     return ftell(mzx_world->input_file);
+  else if(mzx_world->input_is_dir)
+    return dir_tell(&mzx_world->input_directory);
   else
     return -1;
 }
@@ -1321,12 +1323,17 @@ static int fread_pos_read(struct world *mzx_world,
 static void fread_pos_write(struct world *mzx_world,
  const struct function_counter *counter, const char *name, int value, int id)
 {
-  if(mzx_world->input_file)
+  if(!mzx_world->input_is_dir && mzx_world->input_file)
   {
     if(value == -1)
       fseek(mzx_world->input_file, 0, SEEK_END);
     else
       fseek(mzx_world->input_file, value, SEEK_SET);
+  }
+  else if(mzx_world->input_is_dir)
+  {
+    if(value >= 0)
+      dir_seek(&mzx_world->input_directory, value);
   }
 }
 
@@ -2171,92 +2178,146 @@ int set_counter_special(struct world *mzx_world, char *char_value,
   {
     case FOPEN_FREAD:
     {
+      mzx_world->input_file_name[0] = 0;
+
       if(char_value[0])
       {
-        if(mzx_world->input_file)
-          fclose(mzx_world->input_file);
+        char *translated_path = cmalloc(MAX_PATH);
+        int err;
 
-        mzx_world->input_file = fsafeopen(char_value, "rb");
+        if(!mzx_world->input_is_dir && mzx_world->input_file)
+        {
+          fclose(mzx_world->input_file);
+          mzx_world->input_file = NULL;
+        }
+
+        if(mzx_world->input_is_dir)
+        {
+          dir_close(&mzx_world->input_directory);
+          mzx_world->input_is_dir = false;
+        }
+
+        err = fsafetranslate(char_value, translated_path);
+
+        if(err == -FSAFE_MATCHED_DIRECTORY)
+        {
+          if(dir_open(&mzx_world->input_directory, translated_path))
+            mzx_world->input_is_dir = true;
+        }
+        else if(err == -FSAFE_SUCCESS)
+          mzx_world->input_file = fopen_unsafe(translated_path, "rb");
+
+        if(mzx_world->input_file || mzx_world->input_is_dir)
+          strcpy(mzx_world->input_file_name, translated_path);    
+
+        free(translated_path);
       }
       else
       {
-        if(mzx_world->input_file)
+        if(!mzx_world->input_is_dir && mzx_world->input_file)
+        {
           fclose(mzx_world->input_file);
+          mzx_world->input_file = NULL;
+        }
 
-        mzx_world->input_file = NULL;
+        if(mzx_world->input_is_dir)
+        {
+          dir_close(&mzx_world->input_directory);
+          mzx_world->input_is_dir = false;
+        }
       }
 
-      strcpy(mzx_world->input_file_name, char_value);
       break;
     }
 
     case FOPEN_FWRITE:
     {
+      mzx_world->output_file_name[0] = 0;
+
       if(char_value[0])
       {
         if(mzx_world->output_file)
           fclose(mzx_world->output_file);
 
         mzx_world->output_file = fsafeopen(char_value, "wb");
+        if(mzx_world->output_file)
+          strcpy(mzx_world->output_file_name, char_value);
       }
       else
       {
         if(mzx_world->output_file)
+        {
           fclose(mzx_world->output_file);
-
-        mzx_world->output_file = NULL;
+          mzx_world->output_file = NULL;
+        }
       }
 
-      strcpy(mzx_world->output_file_name, char_value);
       break;
     }
 
     case FOPEN_FAPPEND:
     {
+      mzx_world->output_file_name[0] = 0;
+
       if(char_value[0])
       {
         if(mzx_world->output_file)
           fclose(mzx_world->output_file);
 
         mzx_world->output_file = fsafeopen(char_value, "ab");
+        if(mzx_world->output_file)
+          strcpy(mzx_world->output_file_name, char_value);
       }
       else
       {
         if(mzx_world->output_file)
+        {
           fclose(mzx_world->output_file);
-
-        mzx_world->output_file = NULL;
+          mzx_world->output_file = NULL;
+        }
       }
 
-      strcpy(mzx_world->output_file_name, char_value);
       break;
     }
 
     case FOPEN_FMODIFY:
     {
+      mzx_world->output_file_name[0] = 0;
+
       if(char_value[0])
       {
         if(mzx_world->output_file)
           fclose(mzx_world->output_file);
 
         mzx_world->output_file = fsafeopen(char_value, "r+b");
+        if(mzx_world->output_file)
+          strcpy(mzx_world->output_file_name, char_value);
       }
       else
       {
         if(mzx_world->output_file)
+        {
           fclose(mzx_world->output_file);
-
-        mzx_world->output_file = NULL;
+          mzx_world->output_file = NULL;
+        }
       }
 
-      strcpy(mzx_world->output_file_name, char_value);
       break;
     }
 
     case FOPEN_SMZX_PALETTE:
     {
-      load_palette(char_value);
-      pal_update = true;
+      char *translated_path = cmalloc(MAX_PATH);
+      int err;
+
+      err = fsafetranslate(char_value, translated_path);
+      if(err == -FSAFE_SUCCESS)
+      {
+        load_palette(translated_path);
+        pal_update = true;
+      }
+
+      free(translated_path);
       break;
     }
 
@@ -2441,7 +2502,7 @@ int set_counter_special(struct world *mzx_world, char *char_value,
           cur_robot->stack_pointer = 0;
           cur_robot->cur_prog_line = 1;
           cur_robot->label_list =
-           cache_robot_labels(cur_robot, &(cur_robot->num_labels));
+           cache_robot_labels(cur_robot, &cur_robot->num_labels);
 
           // Restart this robot if either it was just a LOAD_ROBOT
           // OR LOAD_ROBOTn was used where n is &robot_id&.
@@ -2478,7 +2539,7 @@ int set_counter_special(struct world *mzx_world, char *char_value,
           cur_robot->cur_prog_line = 1;
           cur_robot->stack_pointer = 0;
           cur_robot->label_list =
-            cache_robot_labels(cur_robot, &(cur_robot->num_labels));
+           cache_robot_labels(cur_robot, &cur_robot->num_labels);
 
           // Restart this robot if either it was just a LOAD_BC
           // OR LOAD_BCn was used where n is &robot_id&.
@@ -3036,7 +3097,8 @@ void set_string(struct world *mzx_world, const char *name, struct string *src,
   dest = find_string(mzx_world, name, &next);
 
   // TODO - Make terminating chars variable, but how..
-  if(special_name_partial("fread") && mzx_world->input_file)
+  if(special_name_partial("fread") &&
+   !mzx_world->input_is_dir && mzx_world->input_file)
   {
     FILE *input_file = mzx_world->input_file;
 
@@ -3107,6 +3169,32 @@ void set_string(struct world *mzx_world, const char *name, struct string *src,
         dest_value = dest->value;
       }
     }
+  }
+  else
+
+  if(special_name_partial("fread") && mzx_world->input_is_dir)
+  {
+    char entry[PATH_BUF_LEN];
+
+    while(1)
+    {
+      // Read entries until there are none left
+      if(!dir_get_next_entry(&mzx_world->input_directory, entry))
+        break;
+
+      // Ignore . and ..
+      if(!strcmp(entry, ".") || !strcmp(entry, ".."))
+        continue;
+
+      // And ignore anything with '*' or '/' in the name
+      if(strchr(entry, '*') || strchr(entry, '/'))
+        continue;
+
+      break;
+    }
+
+    force_string_copy(mzx_world, name, next, &dest, strlen(entry),
+     offset, offset_specified, &size, size_specified, entry);
   }
   else
 
@@ -3612,13 +3700,13 @@ void load_string_board(struct world *mzx_world, const char *name, int w, int h,
    w, h, l, src, width);
 }
 
-int is_string(char *buffer)
+bool is_string(char *buffer)
 {
   size_t namelen, i;
 
   // String doesn't start with $, that's an immediate reject
   if(buffer[0] != '$')
-    return 0;
+    return false;
 
   // We need to stub out any part of the buffer that describes a
   // string offset or size constraint. This is because after the
@@ -3630,10 +3718,10 @@ int is_string(char *buffer)
   // For something to be a string it must not have a . in its name
   for(i = 0; i < namelen; i++)
     if(buffer[i] == '.')
-      return 0;
+      return false;
 
   // Valid string
-  return 1;
+  return true;
 }
 
 void counter_fsg(void)

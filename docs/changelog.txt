@@ -2,6 +2,29 @@ Git
 
 USERS
 
+DEVELOPERS
+
+January 05, 2011 - MZX 2.83b
+
+Another bugfix release. There are also a few (minor) new features, but a
+bump in world/board/save magic has been avoided.
+
+There's a new port to the Pandora platform from Exophase. There are no
+binaries for this platform yet, as I have not had time to set up the
+cross-compiler. Same goes for Android.
+
+Another major (internal) change this time around is that Exophase's
+experimental "debytecode" language modification has been merged. This still
+has some major bugs open against it, and missing features, so I won't be
+doing official releases yet. You can add support for this feature by
+passing "--enable-debytecode" to config.sh on all platforms.
+
+Thanks to Terryn, Exophase and MZXGiant for their contributions and to
+Lancer-X, Old-Sckool and Lachesis who reported and tracked the majority
+of bugs this time round.
+
+USERS
+
 + Fixed a bug where LOAD_ROBOT or LOAD_BC would not reset the stack
   pointer for newly loaded programs. This could cause crashes if a robot
   popped the stack in the new program.
@@ -54,12 +77,45 @@ USERS
   SHOOTSEEKER and SPITFIRE.
 + Improve cycle-ending compatibility with MZX versions prior to 2.80.
   Fixes games such as Kya's Sword and Stones & Roks II.
++ Restored shark's ability to move in goop.
++ Clear SPR_YORDER upon loading a new world.
++ When transitioning between boards, compare the module filenames of the
+  source and destination boards case-insensitively. A difference in case
+  will no longer cause the board module to be incorrectly restarted.
++ Fixed rare rendering corruption in the load game dialog.
++ Fixed a bug where SEND "robot" TO "#return" could corrupt the program
+  counter of the target robot if it had a stack pointer of zero.
++ Fixed some security issues with SMZX_PALETTE and LOAD_BC counters.
++ Only list/open regular files or symlinks to regular files in file
+  dialogs. Special files are now ignored.
++ Opening directories with FREAD_OPEN or FWRITE_OPEN is now rejected
+  properly on all platforms.
++ Fixed a bug where a file would be re-opened for read/write, even if
+  the file was missing or an I/O error occurred before saving.
++ Fixed a bug where MZX could occasionally crash due to label list
+  corruption when copying robots from heap locations greater than
+  2^32 bytes apart (only affected 64bit builds).
++ Stopped SET "var" <command> from assembling. Some invalid uses of
+  command tokens were already being ignored, but this was just luck.
++ Sprites with color c?? (inherited "natural" colors) will correctly
+  inherit the colors of special characters such as the player and other
+  self-colored built-ins.
++ Debytecode's legacy expression converter should use is_string()
+  instead of its own (buggy) hand-rolled version. Fixes crash when
+  converting CoAZ.
++ The editor no longer incorrectly clamps the intelligence of sharks,
+  spitting tigers and spiders to <=4, and no longer clamps the HP of
+  dragons to <=4. (Lancer-X)
++ Accept SET EDGE COLOR "string" in addition to SET EDGE COLOR c??.
 
 DEVELOPERS
 
 + Source tarballs are now generated in XZ (LZMA2) format.
 + Make hlp2txt utility work correctly on Windows platforms.
 + Updated and repaired MSVC project for Visual Studio 2010. (MZXGiant)
++ Win32 binaries are built ASLR-capable (via pefix).
++ Version control was changed from SVN to Git; the repo is at:
+  http://github.com/ajs1984/megazeux
 
 December 29, 2009 - MZX 2.83
 

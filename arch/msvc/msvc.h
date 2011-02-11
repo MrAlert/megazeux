@@ -27,6 +27,7 @@
 #include <direct.h>
 #include <process.h>
 
+#define S_ISREG(mode) (mode & _S_ISREG)
 #define S_ISDIR(mode) (mode & _S_IFDIR)
 
 #define chdir       _chdir
@@ -47,5 +48,8 @@ typedef __int64 ssize_t;
 #else
 typedef _W64 int ssize_t;
 #endif
+
+#pragma message "Implement rewinddir()!"
+#define rewinddir(dirp) 0
 
 #endif // MSVC_H

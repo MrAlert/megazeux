@@ -1841,9 +1841,10 @@ __editor_maybe_static void play_game(struct world *mzx_world)
                 // Save entire game
                 save_world(mzx_world, curr_sav, 1);
               }
+
+              update_event_status();
             }
           }
-          update_event_status();
           break;
         }
 
@@ -1853,7 +1854,7 @@ __editor_maybe_static void play_game(struct world *mzx_world)
            get_counter(mzx_world, "LOAD_MENU", 0))
           {
             // Restore
-            char save_file_name[64];
+            char save_file_name[64] = { 0 };
             m_show();
 
             if(!choose_file_ch(mzx_world, save_ext, save_file_name,
@@ -2242,7 +2243,7 @@ void title_screen(struct world *mzx_world)
         case IKEY_F4:
         case IKEY_r:
         {
-          char save_file_name[64];
+          char save_file_name[64] = { 0 };
 
           // Restore
           m_show();
@@ -2377,7 +2378,7 @@ void title_screen(struct world *mzx_world)
               send_robot_def(mzx_world, 0, 10);
 
               if(strcmp(src_board->mod_playing, "*") &&
-               strcmp(src_board->mod_playing, old_mod_playing))
+               strcasecmp(src_board->mod_playing, old_mod_playing))
               {
                 load_board_module(src_board);
               }
