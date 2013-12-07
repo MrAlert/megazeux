@@ -35,6 +35,21 @@ __M_BEGIN_DECLS
 #define ROBOT_START_STACK 4
 #define ROBOT_MAX_STACK   65536
 
+#define LABEL_TOUCH 0
+#define LABEL_BOMBED 1
+#define LABEL_INVINCO 2
+#define LABEL_PUSHED 3
+#define LABEL_PLAYERSHOT 4
+#define LABEL_NEUTRALSHOT 5
+#define LABEL_ENEMYSHOT 6
+#define LABEL_PLAYERHIT 7
+#define LABEL_LAZER 8
+#define LABEL_SPITFIRE 9
+#define LABEL_JUSTLOADED 10
+#define LABEL_JUSTENTERED 11
+#define LABEL_GOOPTOUCHED 12
+#define LABEL_PLAYERHURT 13
+
 #ifdef CONFIG_DEBYTECODE
 
 // This is the version where programs became source code instead of
@@ -84,6 +99,9 @@ CORE_LIBSPEC int duplicate_scroll(struct board *src_board,
  struct scroll *cur_scroll);
 CORE_LIBSPEC int duplicate_sensor(struct board *src_board,
  struct sensor *cur_sensor);
+CORE_LIBSPEC int send_robot_id_def(struct world *mzx_world, int robot_id,
+ const char *mesg, int ignore_lock);
+CORE_LIBSPEC void send_robot_all_def(struct world *mzx_world, const char *mesg);
 CORE_LIBSPEC void send_robot_def(struct world *mzx_world, int robot_id,
  int mesg_id);
 CORE_LIBSPEC void optimize_null_objects(struct board *src_board);
@@ -94,17 +112,20 @@ CORE_LIBSPEC int place_player_xy(struct world *mzx_world, int x, int y);
 CORE_LIBSPEC void setup_overlay(struct board *src_board, int mode);
 CORE_LIBSPEC void replace_player(struct world *mzx_world);
 
-struct robot *load_robot_allocate(FILE *fp, int savegame, int version);
+void create_blank_robot(struct robot *cur_robot, int savegame);
+struct robot *load_robot_allocate(FILE *fp, int savegame, int file_version,
+ int world_version);
 void load_robot(struct robot *cur_robot, FILE *fp, int savegame, int version);
 struct scroll *load_scroll_allocate(FILE *fp);
 struct sensor *load_sensor_allocate(FILE *fp);
-void save_robot(struct robot *cur_robot, FILE *fp, int savegame);
+void save_robot(struct robot *cur_robot, FILE *fp, int savegame, int version);
 void save_scroll(struct scroll *cur_scroll, FILE *fp, int savegame);
 void save_sensor(struct sensor *cur_sensor, FILE *fp, int savegame);
 void clear_robot(struct robot *cur_robot);
 void clear_scroll(struct scroll *cur_scroll);
 void clear_sensor(struct sensor *cur_sensor);
 void reallocate_scroll(struct scroll *scroll, size_t size);
+
 int find_robot(struct board *src_board, const char *name,
  int *first, int *last);
 void send_robot(struct world *mzx_world, char *name, const char *mesg,
@@ -113,7 +134,7 @@ int send_robot_id(struct world *mzx_world, int id, const char *mesg,
  int ignore_lock);
 void send_robot_all(struct world *mzx_world, const char *mesg);
 int send_robot_self(struct world *mzx_world, struct robot *src_robot,
- const char *mesg);
+ const char *mesg, int ignore_lock);
 int move_dir(struct board *src_board, int *x, int *y, enum dir dir);
 void prefix_first_last_xy(struct world *mzx_world, int *fx, int *fy,
  int *lx, int *ly, int robotx, int roboty);

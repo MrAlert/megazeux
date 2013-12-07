@@ -24,7 +24,7 @@
 
 __M_BEGIN_DECLS
 
-#define OPTION_NAME_LEN 32
+#define OPTION_NAME_LEN 33
 
 enum ratio_type
 {
@@ -61,6 +61,7 @@ struct config_info
   int pc_speaker_on;
 
   // Game options
+  char startup_path[256];
   char startup_file[256];
   char default_save_name[256];
   int mzx_speed;
@@ -80,7 +81,8 @@ struct config_info
 #endif
     
 #ifdef CONFIG_UPDATER
-  char update_host[256];
+  int update_host_count;
+  char **update_hosts;
   char update_branch_pin[256];
 #endif
 };
@@ -93,6 +95,7 @@ CORE_LIBSPEC void set_config_from_file(struct config_info *conf,
 CORE_LIBSPEC void default_config(struct config_info *conf);
 CORE_LIBSPEC void set_config_from_command_line(struct config_info *conf,
  int *argc, char *argv[]);
+CORE_LIBSPEC void free_config(struct config_info *conf);
 
 typedef void (* find_change_option)(void *conf, char *name, char *value,
  char *extended_data);

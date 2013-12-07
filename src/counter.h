@@ -31,22 +31,22 @@ __M_BEGIN_DECLS
 #include "counter_struct.h"
 
 CORE_LIBSPEC int match_function_counter(const char *dest, const char *src);
+CORE_LIBSPEC int get_counter(struct world *mzx_world, const char *name, int id);
 CORE_LIBSPEC void set_counter(struct world *mzx_world, const char *name,
  int value, int id);
-CORE_LIBSPEC void set_string(struct world *mzx_world, const char *name, 
+CORE_LIBSPEC int get_string(struct world *mzx_world, const char *name,
+ struct string *dest, int id);
+CORE_LIBSPEC void set_string(struct world *mzx_world, const char *name,
  struct string *src, int id);
 CORE_LIBSPEC void counter_fsg(void);
 
 void initialize_gateway_functions(struct world *mzx_world);
-int get_counter(struct world *mzx_world, const char *name, int id);
 void inc_counter(struct world *mzx_world, const char *name, int value, int id);
 void dec_counter(struct world *mzx_world, const char *name, int value, int id);
 void mul_counter(struct world *mzx_world, const char *name, int value, int id);
 void div_counter(struct world *mzx_world, const char *name, int value, int id);
 void mod_counter(struct world *mzx_world, const char *name, int value, int id);
 
-int get_string(struct world *mzx_world, const char *name, struct string *dest,
- int id);
 void inc_string(struct world *mzx_world, const char *name, struct string *src,
  int id);
 void dec_string_int(struct world *mzx_world, const char *name, int value,
@@ -57,12 +57,14 @@ void load_string_board(struct world *mzx_world, const char *expression,
  int w, int h, char l, char *src, int width);
 int set_counter_special(struct world *mzx_world, char *char_value,
  int value, int id);
-int is_string(char *buffer);
+bool is_string(char *buffer);
 
-struct counter *load_counter(FILE *fp);
+struct counter *load_counter(struct world *mzx_world, FILE *fp);
 struct string *load_string(FILE *fp);
 void save_counter(FILE *fp, struct counter *src_counter);
 void save_string(FILE *fp, struct string *src_string);
+void free_counter_list(struct counter **counter_list, int num_counters);
+void free_string_list(struct string **string_list, int num_strings);
 
 // Even old games tended to use at least this many.
 #define MIN_COUNTER_ALLOCATE 32
@@ -70,8 +72,8 @@ void save_string(FILE *fp, struct string *src_string);
 // These take up more room...
 #define MIN_STRING_ALLOCATE 4
 
-// Strings cannot be longer than 1M
-#define MAX_STRING_LEN (1 << 20)
+// Strings cannot be longer than 4M (orig 1M)
+#define MAX_STRING_LEN (1 << 22)
 
 // Maximum space board can consume
 #define MAX_BOARD_SIZE 16 * 1024 * 1024

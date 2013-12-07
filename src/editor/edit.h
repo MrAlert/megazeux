@@ -28,10 +28,16 @@ __M_BEGIN_DECLS
 
 #include "../world_struct.h"
 
+EDITOR_LIBSPEC void free_editor_config(struct world *mzx_world);
 EDITOR_LIBSPEC void load_editor_config(struct world *mzx_world, int *argc,
  char *argv[]);
 EDITOR_LIBSPEC void editor_init(void);
 EDITOR_LIBSPEC bool is_editor(void);
+
+/* SAVED POSITIONS
+EDITOR_LIBSPEC void refactor_saved_positions(struct world *mzx_world,
+ int *board_id_translation_list);
+*/
 
 int place_current_at_xy(struct world *mzx_world, enum thing id, int color,
  int param, int x, int y, struct robot *copy_robot,

@@ -822,11 +822,9 @@ static int key_char_box(struct world *mzx_world, struct dialog *di,
       int current_char =
        char_selection(*(src->result));
 
-      if((current_char == 0) ||
-       ((current_char == 255) && (!src->allow_char_255)))
-      {
-        current_char = 1;
-      }
+      if((current_char == 255) && !(src->allow_char_255) &&
+       confirm(mzx_world, "CHAR IDs <128 set to 255 use their param as their char."))
+        current_char = -1; //don't change the char if the user cancels.
 
       if(current_char >= 0)
         *(src->result) = current_char;
@@ -1018,7 +1016,7 @@ int add_board(struct world *mzx_world, int current)
   }
 
   mzx_world->num_boards++;
-  new_board = create_blank_board();
+  new_board = create_blank_board(&(mzx_world->editor_conf));
   mzx_world->board_list[current] = new_board;
   strncpy(new_board->board_name, temp_board_str, BOARD_NAME_SIZE - 1);
   new_board->board_name[BOARD_NAME_SIZE - 1] = '\0';
@@ -1103,5 +1101,5 @@ int choose_file(struct world *mzx_world, const char *const *wildcards,
  char *ret, const char *title, int dirs_okay)
 {
   return file_manager(mzx_world, wildcards, NULL, ret, title, dirs_okay,
-   0, NULL, 0, 0, 0);
+   0, NULL, 0, 0);
 }

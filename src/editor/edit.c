@@ -38,6 +38,7 @@
 #include "../world.h"
 #include "../util.h"
 #include "debug.h"
+#include "robo_debug.h"
 
 #include "block.h"
 #include "board.h"
@@ -65,12 +66,79 @@
 #define EDIT_SCREEN_EXTENDED 24
 #define EDIT_SCREEN_NORMAL   19
 
+void free_editor_config(struct world *mzx_world)
+{
+  int i;
+
+  // Extended Macros
+  if(mzx_world->editor_conf.extended_macros)
+  {
+    for(i = 0; i < mzx_world->editor_conf.num_extended_macros; i++)
+      free_macro(mzx_world->editor_conf.extended_macros[i]);
+
+    free(mzx_world->editor_conf.extended_macros);
+    mzx_world->editor_conf.extended_macros = NULL;
+  }
+
+  // Jump Points
+  if(mzx_world->editor_conf.jump_points)
+  {
+    free(mzx_world->editor_conf.jump_points);
+    mzx_world->editor_conf.jump_points = NULL;
+  }
+}
+
 void load_editor_config(struct world *mzx_world, int *argc, char *argv[])
 {
   default_editor_config(&mzx_world->editor_conf);
   set_editor_config_from_file(&mzx_world->editor_conf,
    mzx_res_get_by_id(CONFIG_TXT));
   set_editor_config_from_command_line(&mzx_world->editor_conf, argc, argv);
+
+  // Backup the config
+  memcpy(&mzx_world->editor_conf_backup, &mzx_world->editor_conf,
+   sizeof(struct editor_config_info));
+}
+
+// Wrapper for reload_world so we can load an editor config
+static bool editor_reload_world(struct world *mzx_world, const char *file,
+ int *faded)
+{
+  struct stat file_info;
+  struct editor_config_info *conf = &(mzx_world->editor_conf);
+  struct editor_config_info *backup = &(mzx_world->editor_conf_backup);
+  size_t file_name_len = strlen(file) - 4;
+  char config_file_name[MAX_PATH];
+
+  bool world_loaded = reload_world(mzx_world, file, faded);
+
+  if(!world_loaded)
+    return world_loaded;
+
+  // Part 1: Reset as much of the config file as we can, also clear up
+  // any jump points that were put in the global files.
+
+  // We don't want to lose these.  If they're any different, the backup
+  // version has already been freed/reallocated, so just copy the pointer.
+  backup->extended_macros = conf->extended_macros;
+
+  // Same for jump points, except we don't want to keep them
+  backup->jump_points = NULL;
+
+  if(conf->jump_points)
+    free(conf->jump_points);
+
+  memcpy(conf, backup, sizeof(struct editor_config_info));
+
+  // Part 2: Now load the new world.editor.cnf.
+
+  strncpy(config_file_name, file, file_name_len);
+  strncpy(config_file_name + file_name_len, ".editor.cnf", 12);
+
+  if(world_loaded && stat(config_file_name, &file_info) >= 0)
+    set_editor_config_from_file(conf, config_file_name);
+
+  return world_loaded;
 }
 
 /* Edit menu- (w/box ends on sides) Current menu name is highlighted. The
@@ -106,26 +174,30 @@ static void synchronize_board_values(struct world *mzx_world,
   *level_color = (*src_board)->level_color;
   *overlay = (*src_board)->overlay;
   *overlay_color = (*src_board)->overlay_color;
+
   clear_screen_no_update();
+
+  // Fix the window caption for the editor
+  set_caption(mzx_world, *src_board, NULL, 1);
 }
 
 static void fix_scroll(int *cursor_board_x, int *cursor_board_y,
  int *scroll_x, int *scroll_y, int cursor_x, int cursor_y,
  int board_width, int board_height, int edit_screen_height)
 {
+  // the bounds checks need to be done in this order
   if(*scroll_x + 80 > board_width)
-  {
     *scroll_x = (board_width - 80);
-    if(*scroll_x < 0)
-      *scroll_x = 0;
-  }
+
+  if(*scroll_x < 0)
+    *scroll_x = 0;
 
   if(*scroll_y + edit_screen_height > board_height)
-  {
     *scroll_y = (board_height - edit_screen_height);
-    if(*scroll_y < 0)
-      *scroll_y = 0;
-  }
+
+  if(*scroll_y < 0)
+    *scroll_y = 0;
+
 
   if(*cursor_board_x >= board_width)
     *cursor_board_x = (board_width - 1);
@@ -140,10 +212,18 @@ static void fix_board(struct world *mzx_world, int new_board)
   mzx_world->current_board = mzx_world->board_list[new_board];
 }
 
-static void fix_mod(struct world *mzx_world, struct board *src_board)
+static void fix_mod(struct world *mzx_world, struct board *src_board,
+ int *listening_flag)
 {
-  load_board_module(src_board);
-  strcpy(mzx_world->real_mod_playing, src_board->mod_playing);
+  // We don't want * in the real_mod_playing
+  if(strcmp(src_board->mod_playing, "*"))
+  {
+    // Passing a ref in case we want to properly end it here at some point
+    if(!(*listening_flag))
+      load_board_module(src_board);
+
+    strcpy(mzx_world->real_mod_playing, src_board->mod_playing);
+  }
 }
 
 #define NUM_MENUS 6
@@ -164,36 +244,44 @@ static const char draw_names[7][10] =
 static const char *const menu_lines[NUM_MENUS][2]=
 {
   {
-    " L:Load\tS:Save  G:Global Info    Alt+R:Restart  Alt+T:Test",
+    " L:Load     S:Save  G:Global Info    Alt+R:Restart  Alt+T:Test",
     " Alt+S:Status Info  Alt+C:Char Edit  Alt+E:Palette  Alt+F:Sound Effects"
   },
   {
-    " Alt+Z:Clear   X:Exits\t  Alt+P:Size/Pos  I:Info  A:Add  D:Delete  V:View",
-    " Alt+I:Import  Alt+X:Export  B:Select board  Alt+O:Edit Overlay"
+    " Alt+Z:Clear  Alt+I:Import  Alt+P:Size/Pos  I:Info   M:Move  A:Add  D:Delete",
+    " Ctrl+G:Goto  Alt+X:Export  Alt+O:Overlay   X:Exits  V:View  B:Select Board"
   },
   {
-    " F3:Terrain  F4:Item\tF5:Creature  F6:Puzzle  F7:Transport  F8:Element",
-    " F9:Misc\tF10:Objects  P:Parameter  C:Color"
+    " F3:Terrain  F4:Item      F5:Creature  F6:Puzzle  F7:Transport  F8:Element",
+    " F9:Misc     F10:Objects  P:Parameter  C:Color"
   },
   {
     " \x12\x1d:Move  Space:Place  Enter:Modify+Grab  Alt+M:Modify  Ins:Grab  Del:Delete",
-    " F:Fill   Tab:Draw\tF2:Text\t\t  Alt+B:Block   Alt+\x12\x1d:Move 10"
+          " F:Fill   Tab:Draw     F2:Text            Alt+B:Block   Alt+\x12\x1d:Move 10"
   },
   {
     " Shift+F1:Show InvisWalls  Shift+F2:Show robots  Shift+F3:Show Fakes",
     " Shift+F4:Show Spaces"
   },
   {
-    " F1:Help    Home\\End:Corner  Alt+A:Select Char Set  Alt+D:Default Colors",
-    " ESC:Exit   Alt+L:Test SAM   Alt+Y:Debug Mode\t  Alt+N:Music    *:Mod *"
+    " F1:Help    Home/End:Corner  Alt+A:Select Char Set  Alt+D:Default Colors",
+    " ESC:Exit   Alt+L:Test SAM   Alt+Y:Debug Mode       Alt+N:Music    *:Mod *"
   }
 };
 
 static const char *const overlay_menu_lines[4] =
 {
   " OVERLAY EDITING- (Alt+O to end)",
-  " \x12\x1d:Move  Space:Place  Ins:Grab  Enter:Character  Del:Delete\t   F:Fill",
-  " C:Color  Alt+B:Block  Tab:Draw  Alt+\x12\x1d:Move 10   Alt+S:Show level  F2:Text",
+  " \x12\x1d:Move  Enter:Character  Space:Place  Ins:Grab  Del:Delete        F:Fill",
+  " C:Color  Alt+\x12\x1d:Move 10   Alt+B:Block  Tab:Draw  Alt+S:Show level  F2:Text",
+  "Character"
+};
+
+static const char *const vlayer_menu_lines[4] =
+{
+  " VLAYER EDITING- (Alt+V to end)",
+  " \x12\x1d:Move  Enter:Character  Space:Place  Ins:Grab  Del:Delete  F:Fill",
+  " C:Color  Alt+\x12\x1d:Move 10   Alt+B:Block  Tab:Draw  Alt+P:Size  F2:Text",
   "Character"
 };
 
@@ -984,7 +1072,7 @@ static void draw_menu_minimal(int overlay_edit, int draw_mode,
    level_param, current_param, src_board);
 }
 
-static void __edit_world(struct world *mzx_world)
+static void __edit_world(struct world *mzx_world, int reload_curr_file)
 {
   struct board *src_board;
   struct robot copy_robot;
@@ -992,6 +1080,7 @@ static void __edit_world(struct world *mzx_world)
   struct sensor copy_sensor;
 
   int i;
+  int fade;
   int cursor_board_x = 0, cursor_board_y = 0;
   int cursor_x = 0, cursor_y = 0;
   int scroll_x = 0, scroll_y = 0;
@@ -1008,6 +1097,7 @@ static void __edit_world(struct world *mzx_world)
   int block_dest_x = -1, block_dest_y = -1;
   int block_command = -1;
   struct board *block_board = NULL;
+  int new_board = -1;
   int text_place;
   int text_start_x = -1;
   int modified = 0;
@@ -1027,10 +1117,10 @@ static void __edit_world(struct world *mzx_world)
   char *level_color;
   char *overlay;
   char *overlay_color;
-  char current_world[128];
-  char mzm_name_buffer[128];
-  char current_listening_dir[MAX_PATH];
-  char current_listening_mod[512];
+  char current_world[MAX_PATH] = { 0 };
+  char mzm_name_buffer[MAX_PATH] = { 0 };
+  char current_listening_dir[MAX_PATH] = { 0 };
+  char current_listening_mod[MAX_PATH] = { 0 };
   int listening_flag = 0;
   int saved_scroll_x[16] = { 0 };
   int saved_scroll_y[16] = { 0 };
@@ -1047,12 +1137,9 @@ static void __edit_world(struct world *mzx_world)
   const char *mzm_ext[] = { ".MZM", NULL };
 
   getcwd(current_listening_dir, MAX_PATH);
-
   chdir(config_dir);
   set_config_from_file(&(mzx_world->conf), "editor.cnf");
   chdir(current_listening_dir);
-
-  current_world[0] = 0;
 
   copy_robot.used = 0;
   copy_sensor.used = 0;
@@ -1062,25 +1149,56 @@ static void __edit_world(struct world *mzx_world)
 
   set_palette_intensity(100);
 
-  if(mzx_world->active)
-  {
-    clear_world(mzx_world);
-    clear_global_data(mzx_world);
-  }
-  mzx_world->active = 1;
-
-  create_blank_world(mzx_world);
-  m_show();
-
   end_module();
+
+  debug("%s\n", curr_file);
+
+  {
+    struct stat stat_res;
+
+    if(curr_file[0] &&
+     stat(curr_file, &stat_res))
+      curr_file[0] = '\0';
+
+    if(
+     reload_curr_file &&
+     curr_file[0] &&
+     editor_reload_world(mzx_world, curr_file, &fade))
+    {
+      strncpy(current_world, curr_file, MAX_PATH);
+
+      mzx_world->current_board_id = mzx_world->first_board;
+      mzx_world->current_board =
+       mzx_world->board_list[mzx_world->current_board_id];
+      src_board = mzx_world->current_board;
+
+      fix_mod(mzx_world, src_board, &listening_flag);
+    }
+    else
+    {
+      current_world[0] = 0;
+
+      if(mzx_world->active)
+      {
+        clear_world(mzx_world);
+        clear_global_data(mzx_world);
+      }
+      mzx_world->active = 1;
+
+      create_blank_world(mzx_world);
+
+      default_palette();
+      save_editor_palette();
+    }
+  }
+
+  m_show();
 
   synchronize_board_values(mzx_world, &src_board, &board_width, &board_height,
    &level_id, &level_param, &level_color, &overlay, &overlay_color);
 
   update_screen();
 
-  default_palette();
-  save_editor_palette();
   insta_fadein();
 
   if(mzx_world->editor_conf.bedit_hhelp)
@@ -1095,9 +1213,11 @@ static void __edit_world(struct world *mzx_world)
     if((backup_count) &&
      ((get_ticks() - backup_timestamp) > (backup_interval * 1000)))
     {
-      char backup_name_formatted[512];
+      char backup_name_formatted[MAX_PATH];
       sprintf(backup_name_formatted,
        "%s%d%s", backup_name, backup_num + 1, backup_ext);
+
+      create_path_if_not_exists(backup_name);
 
       save_world(mzx_world, backup_name_formatted, 0);
       backup_num = (backup_num + 1) % backup_count;
@@ -1278,6 +1398,7 @@ static void __edit_world(struct world *mzx_world)
           current_param = place_current_at_xy(mzx_world, current_id,
            current_color, current_param, cursor_board_x, cursor_board_y,
            &copy_robot, &copy_scroll, &copy_sensor, overlay_edit);
+          modified = 1;
         }
       }
     }
@@ -1311,7 +1432,7 @@ static void __edit_world(struct world *mzx_world)
           synchronize_board_values(mzx_world, &src_board, &board_width,
            &board_height, &level_id, &level_param, &level_color, &overlay,
            &overlay_color);
-          fix_mod(mzx_world, src_board);
+          fix_mod(mzx_world, src_board, &listening_flag);
           fix_scroll(&cursor_board_x, &cursor_board_y, &scroll_x, &scroll_y,
            cursor_x, cursor_y, board_width, board_height, edit_screen_height);
         }
@@ -1323,6 +1444,14 @@ static void __edit_world(struct world *mzx_world)
       case IKEY_UP:
       {
         int i, move_amount = 1;
+
+        if(get_shift_status(keycode_internal))
+        {
+          if(src_board->board_dir[0] != NO_BOARD)
+            new_board = src_board->board_dir[0];
+
+          break;
+        }
 
         if(get_alt_status(keycode_internal))
           move_amount = 10;
@@ -1354,6 +1483,14 @@ static void __edit_world(struct world *mzx_world)
       case IKEY_DOWN:
       {
         int i, move_amount = 1;
+
+        if(get_shift_status(keycode_internal))
+        {
+          if(src_board->board_dir[1] != NO_BOARD)
+            new_board = src_board->board_dir[1];
+
+          break;
+        }
 
         if(get_alt_status(keycode_internal))
           move_amount = 10;
@@ -1387,6 +1524,14 @@ static void __edit_world(struct world *mzx_world)
       case IKEY_LEFT:
       {
         int i, move_amount = 1;
+
+        if(get_shift_status(keycode_internal))
+        {
+          if(src_board->board_dir[3] != NO_BOARD)
+            new_board = src_board->board_dir[3];
+
+          break;
+        }
 
         if(get_alt_status(keycode_internal))
           move_amount = 10;
@@ -1425,6 +1570,14 @@ static void __edit_world(struct world *mzx_world)
       case IKEY_RIGHT:
       {
         int i, move_amount = 1;
+
+        if(get_shift_status(keycode_internal))
+        {
+          if(src_board->board_dir[2] != NO_BOARD)
+            new_board = src_board->board_dir[2];
+
+          break;
+        }
 
         if(get_alt_status(keycode_internal))
           move_amount = 10;
@@ -1538,6 +1691,15 @@ static void __edit_world(struct world *mzx_world)
            ' ', cursor_board_x, cursor_board_y, &copy_robot,
            &copy_scroll, &copy_sensor, overlay_edit);
           modified = 1;
+        }
+        else
+        {
+          if((cursor_board_x != mzx_world->player_x) ||
+           (cursor_board_y != mzx_world->player_y))
+          {
+            id_remove_top(mzx_world, cursor_board_x, cursor_board_y);
+            modified = 1;
+          }
         }
         break;
       }
@@ -1814,6 +1976,7 @@ static void __edit_world(struct world *mzx_world)
               }
               else
               {
+                draw_mode = 0;
                 overlay_edit = 1;
                 current_param = 32;
                 current_color = 7;
@@ -1821,6 +1984,7 @@ static void __edit_world(struct world *mzx_world)
             }
             else
             {
+              draw_mode = 0;
               overlay_edit = 0;
               current_id = SPACE;
               current_param = 0;
@@ -1853,14 +2017,21 @@ static void __edit_world(struct world *mzx_world)
           }
           else
           {
-            char world_name[256];
+            char world_name[MAX_PATH];
+            char new_path[MAX_PATH];
             strcpy(world_name, current_world);
             if(!new_file(mzx_world, world_ext, ".mzx", world_name,
              "Save world", 1))
             {
+              debug("Save path: %s\n", world_name);
               // Save entire game
               strcpy(current_world, world_name);
+              strcpy(curr_file, current_world);
               save_world(mzx_world, current_world, 0);
+
+              get_path(world_name, new_path, MAX_PATH);
+              if(new_path[0])
+                chdir(new_path);
 
               modified = 0;
             }
@@ -1923,34 +2094,10 @@ static void __edit_world(struct world *mzx_world)
             draw_mode = 3;
           }
           else
-          {
-            int new_board =
+            new_board =
              choose_board(mzx_world, mzx_world->current_board_id,
              "Select current board:", 0);
 
-            if(new_board >= 0)
-            {
-              fix_board(mzx_world, new_board);
-
-              synchronize_board_values(mzx_world, &src_board, &board_width,
-               &board_height, &level_id, &level_param, &level_color, &overlay,
-               &overlay_color);
-
-              if(strcmp(src_board->mod_playing, "*") &&
-               strcasecmp(src_board->mod_playing,
-               mzx_world->real_mod_playing))
-                fix_mod(mzx_world, src_board);
-
-              if(!src_board->overlay_mode)
-                overlay_edit = 0;
-
-              fix_scroll(&cursor_board_x, &cursor_board_y, &scroll_x,
-               &scroll_y, cursor_x, cursor_y, board_width, board_height,
-               edit_screen_height);
-
-              modified = 1;
-            }
-          }
         }
         else
         {
@@ -1959,11 +2106,39 @@ static void __edit_world(struct world *mzx_world)
         break;
       }
 
+      case IKEY_KP_MINUS:
+      case IKEY_MINUS:
+      {
+        if(draw_mode != 2)
+        {
+          if(mzx_world->current_board_id > 0)
+            new_board = mzx_world->current_board_id - 1;
+        }
+        else
+          text_place = 1;
+
+        break;
+      }
+
+      case IKEY_KP_PLUS:
+      case IKEY_EQUALS:
+      {
+        if(draw_mode != 2)
+        {
+          if(mzx_world->current_board_id < mzx_world->num_boards - 1)
+            new_board = mzx_world->current_board_id + 1;
+        }
+        else
+          text_place = 1;
+
+        break;
+      }
+
       case IKEY_l:
       {
         if(get_alt_status(keycode_internal))
         {
-          char test_wav[128] = { 0, };
+          char test_wav[MAX_PATH] = { 0, };
           const char *const sam_ext[] = { ".WAV", ".SAM", ".OGG", NULL };
 
           if(!choose_file(mzx_world, sam_ext, test_wav,
@@ -1979,14 +2154,29 @@ static void __edit_world(struct world *mzx_world)
           if(!modified || !confirm(mzx_world,
            "Load: World has not been saved, are you sure?"))
           {
-            if(!choose_file_ch(mzx_world, world_ext, current_world,
+            char last_world[MAX_PATH];
+            char load_world[MAX_PATH];
+            strcpy(last_world, current_world);
+            strcpy(load_world, current_world);
+
+            if(!choose_file_ch(mzx_world, world_ext, load_world,
              "Load World", 1))
             {
               int fade;
+
+              //end_module();
+
               // Load world curr_file
-              end_module();
-              if(!reload_world(mzx_world, current_world, &fade))
-                create_blank_world(mzx_world);
+              strcpy(current_world, load_world);
+              if(!editor_reload_world(mzx_world, current_world, &fade))
+              {
+                strcpy(current_world, last_world);
+
+                fix_mod(mzx_world, src_board, &listening_flag);
+                break;
+                //create_blank_world(mzx_world);
+              }
+              strcpy(curr_file, current_world);
 
               mzx_world->current_board_id = mzx_world->first_board;
               mzx_world->current_board =
@@ -2002,7 +2192,7 @@ static void __edit_world(struct world *mzx_world)
                &board_height, &level_id, &level_param, &level_color,
                &overlay, &overlay_color);
 
-              fix_mod(mzx_world, src_board);
+              fix_mod(mzx_world, src_board, &listening_flag);
 
               fix_scroll(&cursor_board_x, &cursor_board_y, &scroll_x,
                &scroll_y, cursor_x, cursor_y, board_width, board_height,
@@ -2029,7 +2219,7 @@ static void __edit_world(struct world *mzx_world)
           int import_number = import_type(mzx_world);
           if(import_number >= 0)
           {
-            char import_name[128];
+            char import_name[MAX_PATH];
             import_name[0] = 0;
 
             switch(import_number)
@@ -2048,7 +2238,7 @@ static void __edit_world(struct world *mzx_world)
                   if(strcmp(src_board->mod_playing, "*") &&
                    strcasecmp(src_board->mod_playing,
                    mzx_world->real_mod_playing))
-                    fix_mod(mzx_world, src_board);
+                    fix_mod(mzx_world, src_board, &listening_flag);
 
                   fix_scroll(&cursor_board_x, &cursor_board_y, &scroll_x,
                    &scroll_y, cursor_x, cursor_y, board_width, board_height,
@@ -2075,7 +2265,7 @@ static void __edit_world(struct world *mzx_world)
 
                 if(!file_manager(mzx_world, chr_ext, NULL, import_name,
                  "Choose character set to import", 1, 0,
-                 elements, 1, 2, 0))
+                 elements, 1, 2))
                 {
                   ec_load_set_var(import_name, char_offset);
                 }
@@ -2124,7 +2314,7 @@ static void __edit_world(struct world *mzx_world)
                 {
                   FILE *sfx_file;
 
-                  sfx_file = fopen(import_name, "rb");
+                  sfx_file = fopen_unsafe(import_name, "rb");
                   fread(mzx_world->custom_sfx, 69, 50, sfx_file);
                   mzx_world->custom_sfx_on = 1;
                   fclose(sfx_file);
@@ -2158,6 +2348,11 @@ static void __edit_world(struct world *mzx_world)
           if(mzx_world->current_board_id == 0)
             strcpy(mzx_world->name, src_board->board_name);
 
+          // Mostly doing this to update the caption
+          synchronize_board_values(mzx_world, &src_board, &board_width,
+           &board_height, &level_id, &level_param, &level_color,
+           &overlay, &overlay_color);
+
           if(!src_board->overlay_mode)
             overlay_edit = 0;
 
@@ -2174,7 +2369,24 @@ static void __edit_world(struct world *mzx_world)
       {
         if(draw_mode != 2)
         {
-          global_info(mzx_world);
+          if(get_ctrl_status(keycode_internal))
+          {
+            if(!board_goto(mzx_world, &cursor_board_x, &cursor_board_y))
+            {
+              // This will get fixed if necessary.
+              scroll_x = cursor_board_x - 39;
+              scroll_y = cursor_board_y - edit_screen_height / 2;
+
+              fix_scroll(&cursor_board_x, &cursor_board_y, &scroll_x, &scroll_y,
+               cursor_x, cursor_y, board_width, board_height, edit_screen_height);
+            }
+          }
+          else
+          if(get_alt_status(keycode_internal))
+            global_robot(mzx_world);
+          else
+            global_info(mzx_world);
+
           modified = 1;
         }
         else
@@ -2238,7 +2450,7 @@ static void __edit_world(struct world *mzx_world)
           int export_number = export_type(mzx_world);
           if(export_number >= 0)
           {
-            char export_name[128];
+            char export_name[MAX_PATH];
             export_name[0] = 0;
 
             switch(export_number)
@@ -2268,7 +2480,7 @@ static void __edit_world(struct world *mzx_world)
                 };
 
                 if(!file_manager(mzx_world, chr_ext, NULL, export_name,
-                 "Export character set", 1, 1, elements, 2, 2, 0))
+                 "Export character set", 1, 1, elements, 2, 2))
                 {
                   add_ext(export_name, ".chr");
                   ec_save_set_var(export_name, char_offset,
@@ -2298,7 +2510,7 @@ static void __edit_world(struct world *mzx_world)
                 {
                   FILE *sfx_file;
 
-                  sfx_file = fopen(export_name, "wb");
+                  sfx_file = fopen_unsafe(export_name, "wb");
 
                   if(sfx_file)
                   {
@@ -2340,18 +2552,18 @@ static void __edit_world(struct world *mzx_world)
               char new_mod[MAX_PATH] = { 0 };
 
               if(!choose_file(mzx_world, mod_ext, new_mod,
-               "Choose a module file", 0))
+               "Choose a module file", 2)) // 2:subdirsonly
               {
                 strcpy(src_board->mod_playing, new_mod);
                 strcpy(mzx_world->real_mod_playing, new_mod);
-                load_board_module(src_board);
+                fix_mod(mzx_world, src_board, &listening_flag);
               }
             }
             else
             {
-              end_module();
               src_board->mod_playing[0] = 0;
               mzx_world->real_mod_playing[0] = 0;
+              fix_mod(mzx_world, src_board, &listening_flag);
             }
             modified = 1;
           }
@@ -2362,18 +2574,17 @@ static void __edit_world(struct world *mzx_world)
             if(!listening_flag)
             {
               char current_dir[MAX_PATH];
-              char new_mod[128] = { 0 } ;
+              char new_mod[MAX_PATH] = { 0 } ;
 
               getcwd(current_dir, MAX_PATH);
               chdir(current_listening_dir);
 
-              if(!file_manager(mzx_world, mod_gdm_ext, NULL, new_mod,
-               "Choose a module file (listening only)", 1, 0,
-               NULL, 0, 0, 1))
+              if(!choose_file(mzx_world, mod_gdm_ext, new_mod,
+               "Choose a module file (listening only)", 1))
               {
                 load_module(new_mod, false, 255);
                 strcpy(current_listening_mod, new_mod);
-                getcwd(current_listening_dir, MAX_PATH);
+                get_path(new_mod, current_listening_dir, MAX_PATH);
                 listening_flag = 1;
               }
 
@@ -2994,6 +3205,7 @@ static void __edit_world(struct world *mzx_world)
                 free(under_id_buffer);
                 free(color_buffer);
                 free(param_buffer);
+                free(id_buffer);
                 break;
               }
 
@@ -3172,7 +3384,9 @@ static void __edit_world(struct world *mzx_world)
           // View mode
           int viewport_width = src_board->viewport_width;
           int viewport_height = src_board->viewport_height;
-          int v_scroll_x = 0, v_scroll_y = 0;
+          int v_scroll_x = scroll_x;
+          int v_scroll_y = CLAMP(scroll_y, 0,
+           src_board->board_height - src_board->viewport_height);
           int v_key;
 
           cursor_off();
@@ -3226,6 +3440,7 @@ static void __edit_world(struct world *mzx_world)
         {
           text_place = 1;
         }
+        break;
       }
 
       case IKEY_t:
@@ -3237,14 +3452,17 @@ static void __edit_world(struct world *mzx_world)
 
           if(!save_world(mzx_world, "__test.mzx", 0))
           {
+            char *return_dir = cmalloc(MAX_PATH);
+            getcwd(return_dir, MAX_PATH);
+
             save_editor_palette();
             vquick_fadeout();
             cursor_off();
             src_board = mzx_world->board_list[current_board_id];
             fix_board(mzx_world, current_board_id);
             set_counter(mzx_world, "TIME", src_board->time_limit, 0);
-            send_robot_def(mzx_world, 0, 11);
-            send_robot_def(mzx_world, 0, 10);
+            send_robot_def(mzx_world, 0, LABEL_JUSTENTERED);
+            send_robot_def(mzx_world, 0, LABEL_JUSTLOADED);
             find_player(mzx_world);
 
             mzx_world->player_restart_x = mzx_world->player_x;
@@ -3253,16 +3471,22 @@ static void __edit_world(struct world *mzx_world)
             strcpy(mzx_world->real_mod_playing, src_board->mod_playing);
             load_board_module(src_board);
 
-            mzx_world->editing = true;
-
+            pause_robot_debugger();
             play_game(mzx_world);
 
-            mzx_world->editing = false;
+            chdir(return_dir);
 
             if(!reload_world(mzx_world, "__test.mzx", &fade))
             {
-              create_blank_world(mzx_world);
+              if(!editor_reload_world(mzx_world, current_world, &fade))
+                create_blank_world(mzx_world);
+
               current_board_id = mzx_world->current_board_id;
+              board_width = mzx_world->current_board->board_width;
+              board_height = mzx_world->current_board->board_height;
+
+              fix_scroll(&cursor_board_x, &cursor_board_y, &scroll_x, &scroll_y,
+               cursor_x, cursor_y, board_width, board_height, edit_screen_height);
               modified = 0;
             }
 
@@ -3282,17 +3506,11 @@ static void __edit_world(struct world *mzx_world)
 
             insta_fadein();
 
-            fix_mod(mzx_world, src_board);
-
-            if(listening_flag)
-            {
-              getcwd(current_dir, MAX_PATH);
-              chdir(current_listening_dir);
-              load_module(current_listening_mod, true, 255);
-              chdir(current_dir);
-            }
+            fix_mod(mzx_world, src_board, &listening_flag);
 
             unlink("__test.mzx");
+
+            free(return_dir);
           }
         }
         else
@@ -3354,21 +3572,7 @@ static void __edit_world(struct world *mzx_world)
           if(i < MAX_BOARDS)
           {
             if(add_board(mzx_world, i) >= 0)
-            {
-              fix_board(mzx_world, i);
-
-              synchronize_board_values(mzx_world, &src_board, &board_width,
-               &board_height, &level_id, &level_param, &level_color, &overlay,
-               &overlay_color);
-
-              fix_mod(mzx_world, src_board);
-
-              fix_scroll(&cursor_board_x, &cursor_board_y, &scroll_x,
-               &scroll_y, cursor_x, cursor_y, board_width, board_height,
-               edit_screen_height);
-
-              modified = 1;
-            }
+              new_board = i;
           }
         }
         else
@@ -3384,8 +3588,11 @@ static void __edit_world(struct world *mzx_world)
         {
           if(get_alt_status(keycode_internal))
           {
-            default_palette();
-            update_palette();
+            if (!confirm(mzx_world, "LOAD DEFAULT PALETTE - Are you sure?"))
+            {
+              default_palette();
+              update_palette();
+            }
           }
           else
           {
@@ -3405,23 +3612,7 @@ static void __edit_world(struct world *mzx_world)
 
               if(del_board == current_board_id)
               {
-                fix_board(mzx_world, 0);
-
-                synchronize_board_values(mzx_world, &src_board, &board_width,
-                 &board_height, &level_id, &level_param, &level_color,
-                 &overlay, &overlay_color);
-
-                if(strcmp(src_board->mod_playing, "*") &&
-                 strcasecmp(src_board->mod_playing,
-                 mzx_world->real_mod_playing))
-                  fix_mod(mzx_world, src_board);
-
-                fix_scroll(&cursor_board_x, &cursor_board_y, &scroll_x,
-                 &scroll_y, cursor_x, cursor_y, board_width, board_height,
-                 edit_screen_height);
-
-                if(!src_board->overlay_mode)
-                  overlay_edit = 0;
+                new_board = 0;
               }
               else
               {
@@ -3449,10 +3640,10 @@ static void __edit_world(struct world *mzx_world)
           if(!confirm(mzx_world, "Clear board - Are you sure?"))
           {
             clear_board(src_board);
-            src_board = create_blank_board();
+            src_board = create_blank_board(&(mzx_world->editor_conf));
+            mzx_world->current_board = src_board;
             mzx_world->current_board->robot_list[0] = &mzx_world->global_robot;
             mzx_world->board_list[mzx_world->current_board_id] = src_board;
-            mzx_world->current_board = src_board;
             synchronize_board_values(mzx_world, &src_board, &board_width,
              &board_height, &level_id, &level_param, &level_color, &overlay,
              &overlay_color);
@@ -3545,10 +3736,9 @@ static void __edit_world(struct world *mzx_world)
         if(get_shift_status(keycode_internal) ||
          (key == IKEY_KP_MULTIPLY))
         {
-          if(src_board->mod_playing[0])
-            end_module();
           src_board->mod_playing[0] = '*';
           src_board->mod_playing[1] = 0;
+          fix_mod(mzx_world, src_board, &listening_flag);
 
           modified = 1;
         }
@@ -3558,38 +3748,81 @@ static void __edit_world(struct world *mzx_world)
 
       case IKEY_m:
       {
-        if(get_alt_status(keycode_internal))
+        if(draw_mode != 2)
         {
-          int offset = cursor_board_x + (cursor_board_y * board_width);
-          enum thing d_id = (enum thing)level_id[offset];
-          int d_param = level_param[offset];
-
-          if(d_id == SENSOR)
+          // Modify
+          if(get_alt_status(keycode_internal))
           {
-            edit_sensor(mzx_world, src_board->sensor_list[d_param]);
-            modified = 1;
+            int offset = cursor_board_x + (cursor_board_y * board_width);
+
+            if(!overlay_edit)
+            {
+              enum thing d_id = (enum thing)level_id[offset];
+              int d_param = level_param[offset];
+              int new_param;
+
+              if(d_id == SENSOR)
+              {
+                edit_sensor(mzx_world, src_board->sensor_list[d_param]);
+                modified = 1;
+              }
+              else
+
+              if(is_robot(d_id))
+              {
+                edit_robot(mzx_world, src_board->robot_list[d_param]);
+                modified = 1;
+              }
+              else
+
+              if(is_signscroll(d_id))
+              {
+                edit_scroll(mzx_world, src_board->scroll_list[d_param]);
+                modified = 1;
+              }
+              else
+
+              if(is_storageless(d_id) &&
+               (0 <= (new_param = change_param(mzx_world, d_id, d_param, NULL, NULL, NULL))))
+              {
+                src_board->level_param[offset] = new_param;
+                modified = 1;
+              }
+            }
+            else
+            {
+              int o_ch = src_board->overlay[offset];
+              int new_ch;
+
+              if((new_ch = char_selection(o_ch)) >= 0)
+              {
+                src_board->overlay[offset] = new_ch;
+              }
+            }
           }
+          // Move current board
           else
-
-          if(is_robot(d_id))
           {
-            edit_robot(mzx_world, src_board->robot_list[d_param]);
-            modified = 1;
-          }
-          else
+            int new_position;
 
-          if(is_signscroll(d_id))
-          {
-            edit_scroll(mzx_world, src_board->scroll_list[d_param]);
-            modified = 1;
+            if(mzx_world->current_board_id == 0)
+              break;
+
+            new_position =
+             choose_board(mzx_world, mzx_world->current_board_id,
+             "Move board to position:", 0);
+
+            if((new_position > 0) && (new_position < mzx_world->num_boards) &&
+             (new_position != mzx_world->current_board_id))
+            {
+              move_current_board(mzx_world, new_position);
+              new_board = new_position;
+            }
           }
         }
         else
-
-        if(draw_mode == 2)
-        {
           text_place = 1;
-        }
+
         break;
       }
 
@@ -3654,6 +3887,41 @@ static void __edit_world(struct world *mzx_world)
       }
     }
 
+    if(new_board >= 0)
+    {
+      // Hopefully we won't be getting anything out of range but just in case
+      new_board = CLAMP(new_board, 0, mzx_world->num_boards - 1);
+      fix_board(mzx_world, new_board);
+
+      synchronize_board_values(mzx_world, &src_board, &board_width,
+       &board_height, &level_id, &level_param, &level_color, &overlay,
+       &overlay_color);
+
+      if(strcmp(src_board->mod_playing, "*") &&
+       strcasecmp(src_board->mod_playing,
+       mzx_world->real_mod_playing))
+        fix_mod(mzx_world, src_board, &listening_flag);
+
+      if(!src_board->overlay_mode)
+        overlay_edit = 0;
+
+      fix_scroll(&cursor_board_x, &cursor_board_y, &scroll_x,
+       &scroll_y, cursor_x, cursor_y, board_width, board_height,
+       edit_screen_height);
+
+      new_board = -1;
+
+      modified = 1;
+    }
+
+    if(draw_mode == 1 && mzx_world->editor_conf.editor_tab_focuses_view)
+    {
+      scroll_x = CLAMP(cursor_board_x - 40,
+       0, MAX(0, src_board->board_width - 80));
+      scroll_y = CLAMP(cursor_board_y - (edit_screen_height / 2),
+       0, MAX(0, src_board->board_height - edit_screen_height));
+    }
+
     if(text_place)
     {
       key = get_key(keycode_unicode);
@@ -3694,11 +3962,22 @@ static void __edit_world(struct world *mzx_world)
   insta_fadeout();
   strcpy(curr_file, current_world);
 
+  // Free the robot debugger data
+  free_breakpoints();
+
+  // Fix the screen, if the file wasn't saved then the
+  // loader can't do this later
+  set_screen_mode(0);
+  default_palette();
+
+  set_caption(mzx_world, NULL, NULL, 0);
+
   // Clear the copy stuff.
   if(copy_robot.used)
     clear_robot_contents(&copy_robot);
   if(copy_scroll.used)
     clear_scroll_contents(&copy_scroll);
+
 }
 
 void editor_init(void)
@@ -3706,6 +3985,8 @@ void editor_init(void)
   edit_world = __edit_world;
   draw_debug_box = __draw_debug_box;
   debug_counters = __debug_counters;
+  edit_breakpoints = __edit_breakpoints;
+  debug_robot = __debug_robot;
   load_editor_charsets();
 }
 

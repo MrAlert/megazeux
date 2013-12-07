@@ -22,6 +22,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <assert.h>
 #include <sys/stat.h>
 
 #ifndef _MSC_VER
@@ -48,6 +49,7 @@
 #include "audio.h"
 #include "extmem.h"
 #include "util.h"
+#include "validation.h"
 
 static const char magic_code[16] =
  "\xE6\x52\xEB\xF2\x6D\x4D\x4A\xB7\x87\xB2\x92\x88\xDE\x91\x24";
@@ -87,21 +89,22 @@ static inline void meter_initial_draw(int curr, int target,
 
 int fgetw(FILE *fp)
 {
-  int r = fgetc(fp);
-  r |= fgetc(fp) << 8;
-  return r;
+  int a = fgetc(fp), b = fgetc(fp);
+  if((a == EOF) || (b == EOF))
+    return EOF;
+
+  return (b << 8) | a;
 }
 
 // Get 4 bytes
 
 int fgetd(FILE *fp)
 {
-  int r = fgetc(fp);
-  r |= fgetc(fp) << 8;
-  r |= fgetc(fp) << 16;
-  r |= fgetc(fp) << 24;
+  int a = fgetc(fp), b = fgetc(fp), c = fgetc(fp), d = fgetc(fp);
+  if((a == EOF) || (b == EOF) || (c == EOF) || (d == EOF))
+    return EOF;
 
-  return r;
+  return (d << 24) | (c << 16) | (b << 8) | a;
 }
 
 // Put 2 bytes
@@ -171,6 +174,7 @@ static int get_pw_xor_code(char *password, int pro_method)
 static void decrypt(const char *file_name)
 {
   FILE *source;
+  FILE *backup;
   FILE *dest;
   int file_length;
   int pro_method;
@@ -182,10 +186,11 @@ static void decrypt(const char *file_name)
   char password[15];
   char *file_buffer;
   char *src_ptr;
+  char backup_name[MAX_PATH];
 
   int meter_target, meter_curr = 0;
 
-  source = fopen(file_name, "rb");
+  source = fopen_unsafe(file_name, "rb");
   file_length = ftell_and_rewind(source);
 
   meter_target = file_length + (file_length - 15) + 4;
@@ -202,7 +207,13 @@ static void decrypt(const char *file_name)
 
   src_ptr += 25;
 
-  dest = fopen(file_name, "wb");
+  strncpy(backup_name, file_name, MAX_PATH - 8);
+  strcat(backup_name, ".locked");
+  backup = fopen_unsafe(backup_name, "wb");
+  fwrite(file_buffer, file_length, 1, backup);
+  fclose(backup);
+
+  dest = fopen_unsafe(file_name, "wb");
   if(!dest)
   {
     error("Cannot decrypt write-protected world.", 1, 8, 0x0DD5);
@@ -326,7 +337,7 @@ static void decrypt(const char *file_name)
   meter_restore_screen();
 }
 
-static int world_magic(const char magic_string[3])
+int world_magic(const char magic_string[3])
 {
   if(magic_string[0] == 'M')
   {
@@ -370,7 +381,7 @@ int save_world(struct world *mzx_world, const char *file, int savegame)
 #ifdef CONFIG_DEBYTECODE
   if(!savegame)
   {
-    fp = fopen(file, "rb");
+    fp = fopen_unsafe(file, "rb");
     if(fp)
     {
       if(!fseek(fp, 0x1A, SEEK_SET))
@@ -391,7 +402,7 @@ int save_world(struct world *mzx_world, const char *file, int savegame)
   }
 #endif
 
-  fp = fopen(file, "wb");
+  fp = fopen_unsafe(file, "wb");
   if(!fp)
   {
     error("Error saving world", 1, 8, 0x0D01);
@@ -513,6 +524,7 @@ int save_world(struct world *mzx_world, const char *file, int savegame)
 
   if(savegame)
   {
+    struct counter *mzx_speed, *lock_speed;
     int vlayer_size;
 
     for(i = 0; i < 16; i++)
@@ -527,12 +539,23 @@ int save_world(struct world *mzx_world, const char *file, int savegame)
     fputc(mzx_world->under_player_color, fp);
     fputc(mzx_world->under_player_param, fp);
 
-    // Write counters
-    fputd(mzx_world->num_counters, fp);
+    // Write regular counters + mzx_speed
+    fputd(mzx_world->num_counters + 2, fp);
     for(i = 0; i < mzx_world->num_counters; i++)
     {
       save_counter(fp, mzx_world->counter_list[i]);
     }
+
+    mzx_speed = malloc(sizeof(struct counter) + sizeof("mzx_speed") - 1);
+    mzx_speed->value = mzx_world->mzx_speed;
+    strcpy(mzx_speed->name, "mzx_speed");
+    save_counter(fp, mzx_speed);
+    free(mzx_speed);
+    lock_speed = malloc(sizeof(struct counter) + sizeof("_____lock_speed") - 1);
+    lock_speed->value = mzx_world->lock_speed;
+    strcpy(lock_speed->name, "_____lock_speed");
+    save_counter(fp, lock_speed);
+    free(lock_speed);
 
     // Write strings
     fputd(mzx_world->num_strings, fp);
@@ -576,7 +599,11 @@ int save_world(struct world *mzx_world, const char *file, int savegame)
     fputw(mzx_world->divider, fp);
     // Circle divisions
     fputw(mzx_world->c_divisions, fp);
-    // Builtin message status
+    // String FREAD and FWRITE Delimiters
+    fputw(mzx_world->fread_delimiter, fp);
+    fputw(mzx_world->fwrite_delimiter, fp);
+    // Builtin shooting/message status
+    fputc(mzx_world->bi_shoot_status, fp);
     fputc(mzx_world->bi_mesg_status, fp);
 
     // Write input file name and if open, position
@@ -587,9 +614,13 @@ int save_world(struct world *mzx_world, const char *file, int savegame)
         fwrite(mzx_world->input_file_name, len, 1, fp);
     }
 
-    if(mzx_world->input_file)
+    if(!mzx_world->input_is_dir && mzx_world->input_file)
     {
       fputd(ftell(mzx_world->input_file), fp);
+    }
+    else if(mzx_world->input_is_dir)
+    {
+      fputd(dir_tell(&mzx_world->input_directory), fp);
     }
     else
     {
@@ -627,7 +658,7 @@ int save_world(struct world *mzx_world, const char *file, int savegame)
       }
     }
 
-    fputw(mzx_world->commands, fp);
+    fputd(mzx_world->commands, fp);
 
     vlayer_size = mzx_world->vlayer_size;
     fputd(vlayer_size, fp);
@@ -697,7 +728,7 @@ int save_world(struct world *mzx_world, const char *file, int savegame)
     // First save the offset of where the board will be placed
     board_begin_position = ftell(fp);
     // Now save the board and get the size
-    board_size = save_board(cur_board, fp, savegame);
+    board_size = save_board(cur_board, fp, savegame, WORLD_VERSION);
     // board_end_position, unused
     ftell(fp);
     // Record size/offset information.
@@ -709,7 +740,7 @@ int save_world(struct world *mzx_world, const char *file, int savegame)
 
   // Save for global robot position
   gl_rob_position = ftell(fp);
-  save_robot(&mzx_world->global_robot, fp, savegame);
+  save_robot(&mzx_world->global_robot, fp, savegame, WORLD_VERSION);
 
   meter_update_screen(&meter_curr, meter_target);
 
@@ -735,7 +766,7 @@ exit_close:
   return 0;
 }
 
-static int save_magic(const char magic_string[5])
+int save_magic(const char magic_string[5])
 {
   if((magic_string[0] == 'M') && (magic_string[1] == 'Z'))
   {
@@ -806,7 +837,120 @@ __editor_maybe_static void set_update_done(struct world *mzx_world)
   }
 }
 
-__editor_maybe_static void optimize_null_boards(struct world *mzx_world)
+__editor_maybe_static
+void refactor_board_list(struct world *mzx_world,
+ struct board **new_board_list, int new_list_size,
+ int *board_id_translation_list)
+{
+  int i;
+  int i2;
+  int offset;
+  char *level_id;
+  char *level_param;
+  int d_param, d_flag;
+  int board_width;
+  int board_height;
+  int relocate_current = 1;
+
+  int num_boards = mzx_world->num_boards;
+  struct board **board_list = mzx_world->board_list;
+  struct board *cur_board;
+
+/* SAVED POSITIONS
+#ifdef CONFIG_EDITOR
+  refactor_saved_positions(mzx_world, board_id_translation_list);
+#endif
+*/
+
+  if(board_list[mzx_world->current_board_id] == NULL)
+    relocate_current = 0;
+
+  free(board_list);
+  board_list =
+   crealloc(new_board_list, sizeof(struct board *) * new_list_size);
+
+  mzx_world->num_boards = new_list_size;
+  mzx_world->num_boards_allocated = new_list_size;
+
+  // Fix all entrances and exits in each board
+  for(i = 0; i < new_list_size; i++)
+  {
+    cur_board = board_list[i];
+    board_width = cur_board->board_width;
+    board_height = cur_board->board_height;
+    level_id = cur_board->level_id;
+    level_param = cur_board->level_param;
+
+    // Fix entrances
+    for(offset = 0; offset < board_width * board_height; offset++)
+    {
+      d_flag = flags[(int)level_id[offset]];
+
+      if(d_flag & A_ENTRANCE)
+      {
+        d_param = level_param[offset];
+        if(d_param < num_boards)
+          level_param[offset] = board_id_translation_list[d_param];
+        else
+          level_param[offset] = NO_BOARD;
+      }
+    }
+
+    // Fix exits
+    for(i2 = 0; i2 < 4; i2++)
+    {
+      d_param = cur_board->board_dir[i2];
+
+      if(d_param < new_list_size)
+        cur_board->board_dir[i2] = board_id_translation_list[d_param];
+      else
+        cur_board->board_dir[i2] = NO_BOARD;
+    }
+  }
+
+  // Fix current board
+  if(relocate_current)
+  {
+    d_param = mzx_world->current_board_id;
+    d_param = board_id_translation_list[d_param];
+    mzx_world->current_board_id = d_param;
+    mzx_world->current_board = board_list[d_param];
+  }
+
+  d_param = mzx_world->first_board;
+  if(d_param >= num_boards)
+    d_param = num_boards - 1;
+
+  d_param = board_id_translation_list[d_param];
+  mzx_world->first_board = d_param;
+
+  d_param = mzx_world->endgame_board;
+
+  if(d_param != NO_BOARD)
+  {
+    if(d_param >= num_boards)
+      d_param = num_boards - 1;
+
+    d_param = board_id_translation_list[d_param];
+    mzx_world->endgame_board = d_param;
+  }
+
+  d_param = mzx_world->death_board;
+
+  if((d_param != NO_BOARD) && (d_param != DEATH_SAME_POS))
+  {
+    if(d_param >= num_boards)
+      d_param = num_boards - 1;
+
+    d_param = board_id_translation_list[d_param];
+    mzx_world->death_board = d_param;
+  }
+
+  mzx_world->board_list = board_list;
+}
+
+__editor_maybe_static
+void optimize_null_boards(struct world *mzx_world)
 {
   // Optimize out null objects while keeping a translation list mapping
   // board numbers from the old list to the new list.
@@ -847,100 +991,8 @@ __editor_maybe_static void optimize_null_boards(struct world *mzx_world)
 
   if(i2 < num_boards)
   {
-    int offset;
-    char *level_id;
-    char *level_param;
-    int d_param, d_flag;
-    int board_width;
-    int board_height;
-    int relocate_current = 1;
-    int i3;
-
-    if(board_list[mzx_world->current_board_id] == NULL)
-      relocate_current = 0;
-
-    free(board_list);
-    board_list =
-     crealloc(optimized_board_list, sizeof(struct board *) * i2);
-
-    mzx_world->num_boards = i2;
-    mzx_world->num_boards_allocated = i2;
-
-    // Fix all entrances and exits in each board
-    for(i = 0; i < i2; i++)
-    {
-      cur_board = board_list[i];
-      board_width = cur_board->board_width;
-      board_height = cur_board->board_height;
-      level_id = cur_board->level_id;
-      level_param = cur_board->level_param;
-
-      // Fix entrances
-      for(offset = 0; offset < board_width * board_height; offset++)
-      {
-        d_flag = flags[(int)level_id[offset]];
-
-        if(d_flag & A_ENTRANCE)
-        {
-          d_param = level_param[offset];
-          if(d_param < num_boards)
-            level_param[offset] = board_id_translation_list[d_param];
-          else
-            level_param[offset] = NO_BOARD;
-        }
-      }
-
-      // Fix exits
-      for(i3 = 0; i3 < 4; i3++)
-      {
-        d_param = cur_board->board_dir[i3];
-
-        if(d_param < i2)
-          cur_board->board_dir[i3] = board_id_translation_list[d_param];
-        else
-          cur_board->board_dir[i3] = NO_BOARD;
-      }
-    }
-
-    // Fix current board
-    if(relocate_current)
-    {
-      d_param = mzx_world->current_board_id;
-      d_param = board_id_translation_list[d_param];
-      mzx_world->current_board_id = d_param;
-      mzx_world->current_board = board_list[d_param];
-    }
-
-    d_param = mzx_world->first_board;
-    if(d_param >= num_boards)
-      d_param = num_boards - 1;
-
-    d_param = board_id_translation_list[d_param];
-    mzx_world->first_board = d_param;
-
-    d_param = mzx_world->endgame_board;
-
-    if(d_param != NO_BOARD)
-    {
-      if(d_param >= num_boards)
-        d_param = num_boards - 1;
-
-      d_param = board_id_translation_list[d_param];
-      mzx_world->endgame_board = d_param;
-    }
-
-    d_param = mzx_world->death_board;
-
-    if((d_param != NO_BOARD) && (d_param != DEATH_SAME_POS))
-    {
-      if(d_param >= num_boards)
-        d_param = num_boards - 1;
-
-      d_param = board_id_translation_list[d_param];
-      mzx_world->death_board = d_param;
-    }
-
-    mzx_world->board_list = board_list;
+    refactor_board_list(mzx_world, optimized_board_list, i2,
+     board_id_translation_list);
   }
   else
   {
@@ -953,105 +1005,52 @@ __editor_maybe_static void optimize_null_boards(struct world *mzx_world)
 __editor_maybe_static FILE *try_load_world(const char *file,
  bool savegame, int *version, char *name)
 {
-  char magic[5];
   FILE *fp;
+  char magic[5];
   int v;
 
-  fp = fopen(file, "rb");
+  enum val_result status = validate_world_file(file, savegame, NULL, 0);
+
+  if(VAL_NEED_UNLOCK == status)
+  {
+    decrypt(file);
+    status = validate_world_file(file, savegame, NULL, 1);
+  }
+  if(VAL_SUCCESS != status)
+    goto err_out;
+
+  // Validation succeeded so this should be a breeze.
+  fp = fopen_unsafe(file, "rb");
   if(!fp)
   {
-    error("Error loading world", 1, 8, 0x0D01);
+    error("Post validation IO error occurred", 1, 8, 0x0D01);
     goto err_out;
   }
 
   if(savegame)
   {
-    if(fread(magic, 5, 1, fp) != 1)
-      goto err_close;
+    fread(magic, 5, 1, fp);
 
     v = save_magic(magic);
-    if(v != WORLD_VERSION)
-    {
-      const char *msg;
-
-      if(v > WORLD_VERSION)
-        msg = ".SAV files from newer versions of MZX are not supported";
-      else if(v < WORLD_VERSION)
-        msg = ".SAV files from older versions of MZX are not supported";
-      else
-        msg = "Unrecognized magic: file may not be .SAV file";
-
-      error(msg, 1, 8, 0x2101);
-      goto err_close;
-    }
   }
   else
   {
-    int protection_method;
-    char error_string[80];
-
     if(name)
       fread(name, BOARD_NAME_SIZE, 1, fp);
     else
       fseek(fp, BOARD_NAME_SIZE, SEEK_CUR);
 
-    protection_method = fgetc(fp);
-    if(protection_method)
-    {
-      int do_decrypt;
-
-      error("This world is password protected.", 1, 8, 0x0D02);
-
-      do_decrypt = confirm(NULL, "Would you like to decrypt it?");
-      if(!do_decrypt)
-      {
-        fclose(fp);
-        decrypt(file);
-        // Ah recursion.....
-        return try_load_world(file, savegame, version, name);
-      }
-
-      error("Cannot load password protected world.", 1, 8, 0x0D02);
-      goto err_close;
-    }
+    fseek(fp, 1, SEEK_CUR); // Skip protection byte.
 
     fread(magic, 1, 3, fp);
 
     v = world_magic(magic);
-    if(v == 0)
-    {
-      sprintf(error_string, "Attempt to load non-MZX world.");
-    }
-    else
-
-    if(v < 0x0205)
-    {
-      sprintf(error_string, "World is from old version (%d.%d); use converter",
-       (v & 0xFF00) >> 8, v & 0xFF);
-      v = 0;
-    }
-    else
-
-    if(v > WORLD_VERSION)
-    {
-      sprintf(error_string, "World is from more recent version (%d.%d)",
-       (v & 0xFF00) >> 8, v & 0xFF);
-      v = 0;
-    }
-
-    if(!v)
-    {
-      error(error_string, 1, 8, 0x0D02);
-      goto err_close;
-    }
   }
 
   if(version)
     *version = v;
   return fp;
 
-err_close:
-  fclose(fp);
 err_out:
   return NULL;
 }
@@ -1229,6 +1228,7 @@ static void load_world(struct world *mzx_world, FILE *fp, const char *file,
     int vlayer_size;
     int num_counters, num_strings;
     int screen_mode;
+    int j;
 
     for(i = 0; i < 16; i++)
     {
@@ -1249,9 +1249,21 @@ static void load_world(struct world *mzx_world, FILE *fp, const char *file,
     mzx_world->num_counters_allocated = num_counters;
     mzx_world->counter_list = ccalloc(num_counters, sizeof(struct counter *));
 
-    for(i = 0; i < num_counters; i++)
+    for(i = 0, j = 0; i < num_counters; i++)
     {
-      mzx_world->counter_list[i] = load_counter(fp);
+      struct counter *counter = load_counter(mzx_world, fp);
+
+      /* We loaded a special counter, this doesn't need to be
+       * loaded into the regular list.
+       */
+      if(!counter)
+      {
+        mzx_world->num_counters--;
+        continue;
+      }
+
+      mzx_world->counter_list[j] = counter;
+      j++;
     }
 
     // Setup gateway functions
@@ -1266,6 +1278,7 @@ static void load_world(struct world *mzx_world, FILE *fp, const char *file,
     for(i = 0; i < num_strings; i++)
     {
       mzx_world->string_list[i] = load_string(fp);
+      mzx_world->string_list[i]->list_ind = i;
     }
 
     // Allocate space for sprites and clist
@@ -1315,7 +1328,11 @@ static void load_world(struct world *mzx_world, FILE *fp, const char *file,
     mzx_world->divider = fgetw(fp);
     // Circle divisions
     mzx_world->c_divisions = fgetw(fp);
-    // Builtin message status
+    // String FREAD and FWRITE Delimiters
+    mzx_world->fread_delimiter = fgetw(fp);
+    mzx_world->fwrite_delimiter = fgetw(fp);
+    // Builtin shooting/message status
+    mzx_world->bi_shoot_status = fgetc(fp);
     mzx_world->bi_mesg_status = fgetc(fp);
 
     {
@@ -1327,19 +1344,34 @@ static void load_world(struct world *mzx_world, FILE *fp, const char *file,
       mzx_world->input_file_name[len] = 0;
     }
 
-    if(mzx_world->input_file_name[0] != '\0')
+    if(mzx_world->input_file_name[0])
     {
-      mzx_world->input_file =
-       fsafeopen(mzx_world->input_file_name, "rb");
+      char *translated_path = cmalloc(MAX_PATH);
+      int err;
 
-      if(mzx_world->input_file)
+      mzx_world->input_is_dir = false;
+
+      err = fsafetranslate(mzx_world->input_file_name, translated_path);
+      if(err == -FSAFE_MATCHED_DIRECTORY)
       {
-        fseek(mzx_world->input_file, fgetd(fp), SEEK_SET);
+        if(dir_open(&mzx_world->input_directory, translated_path))
+        {
+          dir_seek(&mzx_world->input_directory, fgetd(fp));
+          mzx_world->input_is_dir = true;
+        }
+        else
+          fseek(fp, 4, SEEK_CUR);
       }
-      else
+      else if(err == -FSAFE_SUCCESS)
       {
-        fseek(fp, 4, SEEK_CUR);
+        mzx_world->input_file = fopen_unsafe(translated_path, "rb");
+        if(mzx_world->input_file)
+          fseek(mzx_world->input_file, fgetd(fp), SEEK_SET);
+        else
+          fseek(fp, 4, SEEK_CUR);
       }
+
+      free(translated_path);
     }
     else
     {
@@ -1356,7 +1388,7 @@ static void load_world(struct world *mzx_world, FILE *fp, const char *file,
       mzx_world->output_file_name[len] = 0;
     }
 
-    if(mzx_world->output_file_name[0] != '\0')
+    if(mzx_world->output_file_name[0])
     {
       mzx_world->output_file =
        fsafeopen(mzx_world->output_file_name, "ab");
@@ -1398,7 +1430,7 @@ static void load_world(struct world *mzx_world, FILE *fp, const char *file,
       }
     }
 
-    mzx_world->commands = fgetw(fp);
+    mzx_world->commands = fgetd(fp);
 
     vlayer_size = fgetd(fp);
     mzx_world->vlayer_width = fgetw(fp);
@@ -1458,13 +1490,14 @@ static void load_world(struct world *mzx_world, FILE *fp, const char *file,
 
   for(i = 0; i < num_boards; i++)
   {
-    mzx_world->board_list[i] = load_board_allocate(fp, savegame, version);
+    mzx_world->board_list[i] =
+     load_board_allocate(fp, savegame, version, mzx_world->version);
     store_board_to_extram(mzx_world->board_list[i]);
     meter_update_screen(&meter_curr, meter_target);
   }
 
   // Read global robot
-  fseek(fp, gl_rob, SEEK_SET);
+  fseek(fp, gl_rob, SEEK_SET); //don't worry if this fails
   load_robot(&mzx_world->global_robot, fp, savegame, version);
 
   // Go back to where the names are
@@ -1527,10 +1560,9 @@ __editor_maybe_static void default_global_data(struct world *mzx_world)
   mzx_world->num_sprites = MAX_SPRITES;
   mzx_world->sprite_list = ccalloc(MAX_SPRITES, sizeof(struct sprite *));
 
-  for(i = 0; i < 256; i++)
+  for(i = 0; i < MAX_SPRITES; i++)
   {
-    mzx_world->sprite_list[i] = cmalloc(sizeof(struct sprite));
-    memset(mzx_world->sprite_list[i], 0, sizeof(struct sprite));
+    mzx_world->sprite_list[i] = ccalloc(1, sizeof(struct sprite));
   }
 
   mzx_world->collision_list = ccalloc(MAX_SPRITES, sizeof(int));
@@ -1559,6 +1591,9 @@ __editor_maybe_static void default_global_data(struct world *mzx_world)
   mzx_world->multiplier = 10000;
   mzx_world->divider = 10000;
   mzx_world->c_divisions = 360;
+  mzx_world->fread_delimiter = '*';
+  mzx_world->fwrite_delimiter = '*';
+  mzx_world->bi_shoot_status = 1;
   mzx_world->bi_mesg_status = 1;
 
   // And vlayer
@@ -1608,8 +1643,9 @@ __editor_maybe_static void default_global_data(struct world *mzx_world)
   mzx_world->lock_speed = 0;
   mzx_world->mzx_speed = mzx_world->default_speed;
 
-  mzx_world->input_file = NULL;
-  mzx_world->output_file = NULL;
+  assert(mzx_world->input_file == NULL);
+  assert(mzx_world->output_file == NULL);
+  assert(mzx_world->input_is_dir == false);
 
   mzx_world->target_where = TARGET_NONE;
 }
@@ -1640,6 +1676,17 @@ bool reload_world(struct world *mzx_world, const char *file, int *faded)
   default_global_data(mzx_world);
   *faded = 0;
 
+  // Now that the world's loaded, fix the save path.
+  {
+    char save_name[MAX_PATH];
+    char current_dir[MAX_PATH];
+    getcwd(current_dir, MAX_PATH);
+
+    split_path_filename(curr_sav, NULL, 0, save_name, MAX_PATH);
+    snprintf(curr_sav, MAX_PATH, "%s%s%s",
+     current_dir, DIR_SEPARATOR, save_name);
+  }
+
   return true;
 }
 
@@ -1668,6 +1715,8 @@ bool reload_savegame(struct world *mzx_world, const char *file, int *faded)
 bool reload_swap(struct world *mzx_world, const char *file, int *faded)
 {
   char name[BOARD_NAME_SIZE];
+  char full_path[MAX_PATH];
+  char file_name[MAX_PATH];
   int version;
   FILE *fp;
 
@@ -1683,6 +1732,12 @@ bool reload_swap(struct world *mzx_world, const char *file, int *faded)
   mzx_world->current_board_id = mzx_world->first_board;
   set_current_board_ext(mzx_world,
    mzx_world->board_list[mzx_world->current_board_id]);
+
+  // Give curr_file a full path
+  getcwd(full_path, MAX_PATH);
+  split_path_filename(file, NULL, 0, file_name, MAX_PATH);
+  snprintf(curr_file, MAX_PATH, "%s%s%s",
+   full_path, DIR_SEPARATOR, file_name);
 
   return true;
 }
@@ -1705,13 +1760,20 @@ void clear_world(struct world *mzx_world)
     clear_board(board_list[i]);
   }
   free(board_list);
+  mzx_world->current_board = NULL;
+  mzx_world->board_list = NULL;
 
   clear_robot_contents(&mzx_world->global_robot);
 
-  if(mzx_world->input_file)
+  if(!mzx_world->input_is_dir && mzx_world->input_file)
   {
     fclose(mzx_world->input_file);
     mzx_world->input_file = NULL;
+  }
+  else if(mzx_world->input_is_dir)
+  {
+    dir_close(&mzx_world->input_directory);
+    mzx_world->input_is_dir = false;
   }
 
   if(mzx_world->output_file)
@@ -1730,7 +1792,6 @@ void clear_world(struct world *mzx_world)
 void clear_global_data(struct world *mzx_world)
 {
   int i;
-  int num_sprites = mzx_world->num_sprites;
   int num_counters = mzx_world->num_counters;
   int num_strings = mzx_world->num_strings;
   struct counter **counter_list = mzx_world->counter_list;
@@ -1742,27 +1803,20 @@ void clear_global_data(struct world *mzx_world)
   mzx_world->vlayer_chars = NULL;
   mzx_world->vlayer_colors = NULL;
 
-  for(i = 0; i < num_counters; i++)
-  {
-    free(counter_list[i]);
-  }
-  free(counter_list);
+  // Let counter.c handle this
+  free_counter_list(counter_list, num_counters);
   mzx_world->counter_list = NULL;
+
+  // Let counter.c handle this
+  free_string_list(string_list, num_strings);
+  mzx_world->string_list = NULL;
 
   mzx_world->num_counters = 0;
   mzx_world->num_counters_allocated = 0;
-
-  for(i = 0; i < num_strings; i++)
-  {
-    free(string_list[i]);
-  }
-
-  free(string_list);
-  mzx_world->string_list = NULL;
   mzx_world->num_strings = 0;
   mzx_world->num_strings_allocated = 0;
 
-  for(i = 0; i < num_sprites; i++)
+  for(i = 0; i < MAX_SPRITES; i++)
   {
     free(sprite_list[i]);
   }
@@ -1774,6 +1828,9 @@ void clear_global_data(struct world *mzx_world)
   free(mzx_world->collision_list);
   mzx_world->collision_list = NULL;
   mzx_world->collision_count = 0;
+
+  mzx_world->active_sprites = 0;
+  mzx_world->sprite_y_order = 0;
 
   mzx_world->vlayer_size = 0;
   mzx_world->vlayer_width = 0;

@@ -71,20 +71,20 @@ gl1;
 
 static const struct dso_syms_map gl1_syms_map[] =
 {
-  { "glBindTexture",        (void **)&gl1.glBindTexture },
-  { "glClear",              (void **)&gl1.glClear },
-  { "glDisableClientState", (void **)&gl1.glDisableClientState },
-  { "glDrawArrays",         (void **)&gl1.glDrawArrays },
-  { "glEnable",             (void **)&gl1.glEnable },
-  { "glEnableClientState",  (void **)&gl1.glEnableClientState },
-  { "glGenTextures",        (void **)&gl1.glGenTextures },
-  { "glGetError",           (void **)&gl1.glGetError },
-  { "glGetString",          (void **)&gl1.glGetString },
-  { "glTexCoordPointer",    (void **)&gl1.glTexCoordPointer },
-  { "glTexImage2D",         (void **)&gl1.glTexImage2D },
-  { "glTexParameterf",      (void **)&gl1.glTexParameterf },
-  { "glVertexPointer",      (void **)&gl1.glVertexPointer },
-  { "glViewport",           (void **)&gl1.glViewport },
+  { "glBindTexture",        (fn_ptr *)&gl1.glBindTexture },
+  { "glClear",              (fn_ptr *)&gl1.glClear },
+  { "glDisableClientState", (fn_ptr *)&gl1.glDisableClientState },
+  { "glDrawArrays",         (fn_ptr *)&gl1.glDrawArrays },
+  { "glEnable",             (fn_ptr *)&gl1.glEnable },
+  { "glEnableClientState",  (fn_ptr *)&gl1.glEnableClientState },
+  { "glGenTextures",        (fn_ptr *)&gl1.glGenTextures },
+  { "glGetError",           (fn_ptr *)&gl1.glGetError },
+  { "glGetString",          (fn_ptr *)&gl1.glGetString },
+  { "glTexCoordPointer",    (fn_ptr *)&gl1.glTexCoordPointer },
+  { "glTexImage2D",         (fn_ptr *)&gl1.glTexImage2D },
+  { "glTexParameterf",      (fn_ptr *)&gl1.glTexParameterf },
+  { "glVertexPointer",      (fn_ptr *)&gl1.glVertexPointer },
+  { "glViewport",           (fn_ptr *)&gl1.glViewport },
   { NULL, NULL }
 };
 
@@ -94,6 +94,9 @@ struct gl1_render_data
 {
 #ifdef CONFIG_EGL
   struct egl_render_data egl;
+#endif
+#ifdef CONFIG_SDL
+  struct sdl_render_data sdl;
 #endif
   Uint32 *pixels;
   Uint32 w;
@@ -112,7 +115,9 @@ static bool gl1_init_video(struct graphics_data *graphics,
   if(!GL_LoadLibrary(GL_LIB_FIXED))
     goto err_free_render_data;
 
+  memset(render_data, 0, sizeof(struct gl1_render_data));
   graphics->render_data = render_data;
+
   render_data->ratio = conf->video_ratio;
 
   graphics->gl_vsync = conf->gl_vsync;
@@ -286,7 +291,7 @@ static void gl1_render_mouse(struct graphics_data *graphics,
   struct gl1_render_data *render_data = graphics->render_data;
 
   render_mouse(render_data->pixels, render_data->w * 4, 32, x, y, 0xFFFFFFFF,
-   w, h);
+   0x0, w, h);
 }
 
 static void gl1_sync_screen(struct graphics_data *graphics)

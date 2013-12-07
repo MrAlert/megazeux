@@ -47,6 +47,7 @@
 #ifdef CONFIG_ICON
 #include "SDL_syswm.h"
 #endif // CONFIG_ICON
+#include "render_sdl.h"
 #endif // CONFIG_SDL
 
 #include "util.h"
@@ -136,7 +137,7 @@ void ec_read_char(Uint8 chr, char *matrix)
 
 Sint32 ec_load_set(char *name)
 {
-  FILE *fp = fopen(name, "rb");
+  FILE *fp = fopen_unsafe(name, "rb");
 
   if(fp == NULL)
    return -1;
@@ -155,7 +156,7 @@ Sint32 ec_load_set(char *name)
 __editor_maybe_static void ec_load_set_secondary(const char *name,
  Uint8 *dest)
 {
-  FILE *fp = fopen(name, "rb");
+  FILE *fp = fopen_unsafe(name, "rb");
 
   if(!fp)
     return;
@@ -171,7 +172,7 @@ __editor_maybe_static void ec_load_set_secondary(const char *name,
 Sint32 ec_load_set_var(char *name, Uint8 pos)
 {
   Uint32 size = CHARSET_SIZE;
-  FILE *fp = fopen(name, "rb");
+  FILE *fp = fopen_unsafe(name, "rb");
 
   if(!fp)
     return -1;
@@ -429,7 +430,7 @@ void load_palette(const char *fname)
   int file_size, i, r, g, b;
   FILE *pal_file;
 
-  pal_file = fopen(fname, "rb");
+  pal_file = fopen_unsafe(fname, "rb");
   if(!pal_file)
     return;
 
@@ -672,7 +673,7 @@ void vquick_fadeout(void)
 {
   if(!graphics.fade_status)
   {
-    Sint32 i, num_colors;
+    Sint32 i, i2, num_colors;
     Uint32 ticks;
 
     if(graphics.screen_mode >= 2)
@@ -683,10 +684,13 @@ void vquick_fadeout(void)
     memcpy(graphics.saved_intensity, graphics.current_intensity,
      sizeof(Uint32) * num_colors);
 
-    for(i = 100; i >= 0; i -= 10)
+    for(i = 10; i >= 0; i--)
     {
       ticks = get_ticks();
-      set_palette_intensity(i);
+
+      for(i2 = 0; i2 < num_colors; i2++)
+        set_color_intensity(i2, (graphics.saved_intensity[i2] * i / 10));
+
       update_palette();
       update_screen();
       ticks = get_ticks() - ticks;
@@ -713,16 +717,13 @@ void vquick_fadein(void)
     else
       num_colors = PAL_SIZE;
 
-    for(i = 0; i < 10; i++)
+    for(i = 0; i <= 10; i++)
     {
       ticks = get_ticks();
+
       for(i2 = 0; i2 < num_colors; i2++)
-      {
-        graphics.current_intensity[i2] += 10;
-        if(graphics.current_intensity[i2] > graphics.saved_intensity[i2])
-          graphics.current_intensity[i2] = graphics.saved_intensity[i2];
-        set_color_intensity(i2, graphics.current_intensity[i2]);
-      }
+        set_color_intensity(i2, (graphics.saved_intensity[i2] * i / 10));
+
       update_palette();
       update_screen();
       ticks = get_ticks() - ticks;
@@ -859,6 +860,59 @@ static SDL_Surface *png_read_icon(const char *name)
 
 #endif // CONFIG_PNG && CONFIG_SDL && CONFIG_ICON && !__WIN32__
 
+void set_window_caption(const char *caption)
+{
+#ifdef CONFIG_SDL
+  SDL_Window *window = SDL_GetWindowFromID(sdl_window_id);
+  SDL_SetWindowTitle(window, caption);
+#endif
+}
+
+char *get_default_caption(void)
+{
+  return graphics.default_caption;
+}
+
+static void set_window_icon(void)
+{
+#if defined(CONFIG_SDL) && defined(CONFIG_ICON)
+#ifdef __WIN32__
+  {
+    /* Roll our own icon code; the SDL stuff is a mess and for some
+     * reason limits us to 256 colour icons (with keying but no alpha).
+     *
+     * We also pull off some nifty WIN32 hackery to load the executable's
+     * icon resource; saves having an external dependency.
+     */
+    HICON icon = LoadIcon(GetModuleHandle(NULL), MAKEINTRESOURCE(1));
+    if(icon)
+    {
+      SDL_Window *window = SDL_GetWindowFromID(sdl_window_id);
+      SDL_SysWMinfo info;
+
+      SDL_VERSION(&info.version);
+      SDL_GetWindowWMInfo(window, &info);
+
+      SendMessage(SDL_SysWMinfo_GetWND(&info),
+       WM_SETICON, ICON_BIG, (LPARAM)icon);
+    }
+  }
+#else // !__WIN32__
+#if defined(CONFIG_PNG)
+  {
+    SDL_Surface *icon = png_read_icon("/usr/share/icons/megazeux.png");
+    if(icon)
+    {
+      SDL_Window *window = SDL_GetWindowFromID(sdl_window_id);
+      SDL_SetWindowIcon(window, icon);
+      SDL_FreeSurface(icon);
+    }
+  }
+#endif // CONFIG_PNG
+#endif // __WIN32__
+#endif // CONFIG_SDL && CONFIG_ICON
+}
+
 bool init_video(struct config_info *conf, const char *caption)
 {
   graphics.screen_mode = 0;
@@ -875,29 +929,16 @@ bool init_video(struct config_info *conf, const char *caption)
   if(!set_graphics_output(conf))
     return false;
 
-#ifdef CONFIG_SDL
-  SDL_WM_SetCaption(caption, "");
-#endif
-
   // These values (the defaults, actually) are special and tell MZX to try
   // to use the current desktop resolution as the fullscreen resolution
   if(conf->resolution_width == -1 && conf->resolution_height == -1)
   {
     graphics.resolution_width = 640;
     graphics.resolution_height = 480;
-
-#ifdef CONFIG_SDL
-#if !(SDL_MAJOR_VERSION == 1 && SDL_MINOR_VERSION == 2 && SDL_PATCHLEVEL < 10)
-    // We'll only do this for hardware scaling renderers
-    if(strcmp(conf->video_output, "software") != 0)
-    {
-      const SDL_VideoInfo *video_info = SDL_GetVideoInfo();
-      graphics.resolution_width = video_info->current_w;
-      graphics.resolution_height = video_info->current_h;
-    }
-#endif
-#endif // CONFIG_SDL
   }
+
+  strncpy(graphics.default_caption, caption, 32);
+  graphics.default_caption[31] = '\0';
 
   if(!graphics.renderer.init_video(&graphics, conf))
   {
@@ -915,40 +956,6 @@ bool init_video(struct config_info *conf, const char *caption)
   if(!graphics.system_mouse)
     SDL_ShowCursor(SDL_DISABLE);
 #endif
-
-#if defined(CONFIG_SDL) && defined(CONFIG_ICON)
-#ifdef __WIN32__
-  {
-    /* Roll our own icon code; the SDL stuff is a mess and for some
-     * reason limits us to 256 colour icons (with keying but no alpha).
-     *
-     * We also pull off some nifty WIN32 hackery to load the executable's
-     * icon resource; saves having an external dependency.
-     */
-    HICON icon = LoadIcon(GetModuleHandle(NULL), MAKEINTRESOURCE(1));
-    if(icon)
-    {
-      SDL_SysWMinfo info;
-
-      SDL_VERSION(&info.version);
-      SDL_GetWMInfo(&info);
-
-      SendMessage(info.window, WM_SETICON, ICON_BIG, (LPARAM)icon);
-    }
-  }
-#else // !__WIN32__
-#if defined(CONFIG_PNG)
-  {
-    SDL_Surface *icon = png_read_icon("/usr/share/icons/megazeux.png");
-    if(icon)
-    {
-      SDL_WM_SetIcon(icon, NULL);
-      SDL_FreeSurface(icon);
-    }
-  }
-#endif // CONFIG_PNG
-#endif // __WIN32__
-#endif // CONFIG_SDL && CONFIG_ICON
 
   ec_load_set_secondary(mzx_res_get_by_id(MZX_DEFAULT_CHR),
    graphics.default_charset);
@@ -972,6 +979,7 @@ bool set_video_mode(void)
   int target_depth = graphics.bits_per_pixel;
   bool fullscreen = graphics.fullscreen;
   bool resize = graphics.allow_resize;
+  bool ret;
 
   if(fullscreen)
   {
@@ -1000,8 +1008,16 @@ bool set_video_mode(void)
     graphics.fullscreen = fullscreen;
   }
 
-  return graphics.renderer.set_video_mode(&graphics,
+  ret = graphics.renderer.set_video_mode(&graphics,
    target_width, target_height, target_depth, fullscreen, resize);
+
+  if(ret)
+  {
+    set_window_caption(graphics.default_caption);
+    set_window_icon();
+  }
+
+  return ret;
 }
 
 #if 0
@@ -1580,7 +1596,7 @@ static void dump_screen_real(Uint8 *pix, struct rgb_color *pal, int count,
   FILE *file;
   int i;
 
-  file = fopen(name, "wb");
+  file = fopen_unsafe(name, "wb");
   if(!file)
     return;
 

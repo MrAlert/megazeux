@@ -65,8 +65,8 @@ core_cobjs := \
   ${core_obj}/idput.o ${core_obj}/intake.o ${core_obj}/legacy_rasm.o \
   ${core_obj}/mzm.o ${core_obj}/render.o ${core_obj}/robot.o         \
   ${core_obj}/run_robot.o ${core_obj}/scrdisp.o ${core_obj}/sfx.o    \
-  ${core_obj}/sprite.o ${core_obj}/util.o ${core_obj}/window.o       \
-  ${core_obj}/world.o
+  ${core_obj}/sprite.o ${core_obj}/util.o ${core_obj}/validation.o   \
+  ${core_obj}/window.o ${core_obj}/world.o
 
 #
 # Lists mandatory C++ language sources (mangled to object names) required
@@ -154,6 +154,10 @@ endif
 ifeq (${BUILD_EGL},1)
 core_cobjs += ${core_obj}/render_egl.o
 core_ldflags := -lEGL ${core_ldflags}
+ifneq (${X11DIR},)
+core_flags += -I${X11DIR}/../include
+core_ldflags := -L${X11DIR}/../${RAWLIBDIR} -lX11 ${core_ldflags}
+endif
 endif
 
 ifeq (${BUILD_RENDER_YUV},1)

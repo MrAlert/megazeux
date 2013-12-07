@@ -1,7 +1,8 @@
 /* MegaZeux
  *
- * Copyright (C) 2008 Alistair John Strachan <alistair@devzero.co.uk>
  * Copyright (C) 2004 Gilead Kutnick <exophase@adelphia.net>
+ * Copyright (C) 2008 Alistair John Strachan <alistair@devzero.co.uk>
+ * Copyright (C) 2012 Alice Lauren Rowan <petrifiedrowan@gmail.com>
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License as
@@ -292,6 +293,269 @@ ssize_t get_path(const char *file_name, char *dest, unsigned int buf_len)
   return __get_path(file_name, dest, buf_len);
 }
 
+void split_path_filename(const char *source,
+ char *destpath, unsigned int dest_buffer_len,
+ char *destfile, unsigned int file_buffer_len)
+{
+  char temppath[MAX_PATH];
+  struct stat path_info;
+  int stat_res = stat(source, &path_info);
+
+  // If the entirety of source is a directory
+  if((stat_res >= 0) && S_ISDIR(path_info.st_mode))
+  {
+    if(dest_buffer_len)
+      strncpy(destpath, source, dest_buffer_len);
+
+    if(file_buffer_len)
+      strcpy(destfile, "");
+  }
+  else
+  // If source has a directory and a file
+  if((source[0] != '\0') && get_path(source, temppath, MAX_PATH))
+  {
+    // get_path leaves off trailing /, add 1 to offset.
+    if(dest_buffer_len)
+      strncpy(destpath, temppath, dest_buffer_len);
+
+    if(file_buffer_len)
+      strncpy(destfile, &(source[strlen(temppath) + 1]), file_buffer_len);
+  }
+  // Source is just a file or blank.
+  else
+  {
+    if(dest_buffer_len)
+      strcpy(destpath, "");
+
+    if(file_buffer_len)
+      strncpy(destfile, source, file_buffer_len);
+  }
+}
+
+int create_path_if_not_exists(const char *filename)
+{
+  struct stat stat_info;
+  char parent_directory[MAX_PATH];
+
+  if(!get_path(filename, parent_directory, MAX_PATH))
+    return 1;
+
+  if(!stat(parent_directory, &stat_info))
+    return 2;
+
+  create_path_if_not_exists(parent_directory);
+
+  if(mkdir(parent_directory, 0755))
+    return 3;
+
+  return 0;
+}
+
+static void clean_path_slashes(const char *source, char *dest, int buf_size)
+{
+  unsigned int i;
+  int p;
+
+  for(i = 0, p = 0;
+   (i < strlen(source)) && (source[i] != 0) && (p < buf_size-1);
+   i++, p++)
+  {
+    dest[p] = source[i];
+    while((dest[p] == DIR_SEPARATOR_CHAR) &&
+     (source[i + 1] == DIR_SEPARATOR_CHAR) &&
+     (source[i + 1] != 0))
+      i++;
+  }
+  dest[p] = '\0';
+
+  if((p >= 2) && (dest[p-1] == DIR_SEPARATOR_CHAR) && (dest[p-2] != ':'))
+    dest[p-1] = '\0';
+
+}
+
+// Navigate a path name.
+int change_dir_name(char *path_name, const char *dest)
+{
+  struct stat stat_info;
+  char path[MAX_PATH];
+  char *colon_loc;
+  int size;
+
+  if(!dest || !dest[0])
+    return -2;
+
+  if(!path_name)
+    return -1;
+
+  colon_loc = strchr(dest, ':');
+
+  // Stop!  recursion time
+  if(strchr(dest, DIR_SEPARATOR_CHAR) || colon_loc)
+  {
+    char dir_element[MAX_PATH];
+    unsigned int i, dir_start = 0;
+
+    strncpy(path, dest, MAX_PATH - 1);
+    path[MAX_PATH - 1] = 0;
+
+    if(path[strlen(path) - 1] == ':')
+      strcat(path, DIR_SEPARATOR);
+
+    if(stat(path, &stat_info) < 0)
+      return -20;
+
+    for(i = 0; i <= strlen(path); i++)
+    {
+      if((path[i] == DIR_SEPARATOR_CHAR) || (i == strlen(path)))
+      {
+        // Root directory.  Remember colon_loc is relative to dest, not path
+        if((i == 0) || (colon_loc && (size_t)(colon_loc - dest) < i))
+        {
+          strncpy(path_name, path, i+1);
+          path_name[i + 1] = '\0';
+        }
+        else if (i != dir_start)
+        {
+          int res;
+          strncpy(dir_element, path + dir_start, i-dir_start);
+          dir_element[i - dir_start] = '\0';
+          res = change_dir_name(path_name, dir_element);
+          if(res)
+            return res;
+        }
+
+        dir_start = i + 1;
+      }
+    }
+
+    return 0;
+  }
+
+  // Check for the special . and ..
+  if(dest[0] == '.')
+  {
+    if((dest[1] == '.') && (dest[2] == '\0'))
+    {
+      size = get_path(path_name, path, MAX_PATH);
+
+      // Fix ..ing to root paths
+      if(path[strlen(path) - 1] == ':')
+        strcat(path, DIR_SEPARATOR);
+
+      if(size > 0)
+      {
+        strcpy(path_name, path);
+        return 0;
+      }
+      else
+
+      //One step above root on unix-based systems
+      if(path_name[0] == '/')
+      {
+        strcpy(path_name, "/");
+        return 0;
+      }
+
+    }
+    else if (dest[1] == '\0')
+      return 0;
+  }
+
+  snprintf(path, MAX_PATH, "%s%s%s", path_name, DIR_SEPARATOR, dest);
+  path[MAX_PATH - 1] = 0;
+
+  if(stat(path, &stat_info) >= 0)
+  {
+    clean_path_slashes(path, path_name, MAX_PATH - 1);
+    path_name[MAX_PATH - 1] = 0;
+    return 0;
+  }
+
+  return -3;
+}
+
+
+// Okay I seriously can't be bothered here to figure out
+// which platforms actually have this function and which don't
+static void *boyer_moore_memrchr(const void *mem, char ch, size_t len)
+{
+  char *e = (char *)mem + len;
+  while(e-- != (char *)mem)
+    if(*e == ch)
+      return (void *)e;
+  return NULL;
+}
+
+// Index must be an array of 256 ints
+void boyer_moore_index(void *B, size_t b_len,
+ int *index, bool ignore_case)
+{
+  char *b = (char *)B;
+  int i;
+
+  char *s = b;
+  char *last = b + b_len - 1;
+  char *c1, *c2;
+
+  while(s < last)
+  {
+    if(!ignore_case)
+    {
+      c1 = boyer_moore_memrchr(b, *s, b_len);
+      if(c1)
+        index[(int)*s] = (last - c1);
+    }
+    else
+    {
+      c1 = boyer_moore_memrchr(b, tolower((int)*s), b_len);
+      c2 = boyer_moore_memrchr(b, toupper((int)*s), b_len);
+      if(c1 && c1 > c2)
+        index[tolower((int)*s)] = (last - c1);
+      else
+      if(c2)
+        index[tolower((int)*s)] = (last - c2);
+    }
+    s++;
+  }
+  for(i = 0; i < 256; i++)
+    if(index[i] <= 0 || index[i] > (int)b_len)
+      index[i] = b_len;
+}
+
+// Search for substring B in haystack A. The index greatly increases the
+// search speed, especially for large needles. This is actually a reduced
+// Boyer-Moore search, as the original version uses two separate indexes.
+void *boyer_moore_search(void *A, size_t a_len, void *B, size_t b_len,
+ int *index, bool ignore_case)
+{
+  unsigned char *a = (unsigned char *)A;
+  unsigned char *b = (unsigned char *)B;
+  size_t i = b_len - 1;
+  int j;
+  if(!ignore_case) {
+    while(i < a_len) {
+      j = b_len - 1;
+      while(j >= 0 && a[i] == b[j])
+        j--, i--;
+      if(j == -1)
+        return (void *)(a + i);
+      i += MAX(1, index[(int)a[i]]) + (b_len - j - 1);
+    }
+  }
+  else {
+    while(i < a_len) {
+      j = b_len - 1;
+      while(j >= 0 && tolower((int)a[i]) == tolower((int)b[j]))
+        j--, i--;
+      if(j == -1)
+        return (void *)(a + i);
+      i += MAX(1, index[tolower((int)a[i])]) + (b_len - j - 1);
+    }
+  }
+  return NULL;
+}
+
+
 #if defined(__WIN32__) && defined(__STRICT_ANSI__)
 
 /* On WIN32 with C99 defining __STRICT_ANSI__ these POSIX.1-2001 functions
@@ -373,61 +637,87 @@ char *strsep(char **stringp, const char *delim)
 
 #endif // __WIN32__ || __amigaos__
 
-#if defined(CONFIG_NDS) || defined(CONFIG_WII)
-
-// NDS/Wii versions of these functions backend directly to libfat
-
-dir_t *dir_open(const char *path)
+long dir_tell(struct mzx_dir *dir)
 {
-  return diropen(path);
+  return dir->pos;
 }
 
-void dir_close(dir_t *dir)
+bool dir_open(struct mzx_dir *dir, const char *path)
 {
-  if(dir)
-    dirclose(dir);
+  dir->d = opendir(path);
+  if(!dir->d)
+    return false;
+
+  dir->entries = 0;
+  while(readdir(dir->d) != NULL)
+    dir->entries++;
+
+#ifdef CONFIG_PSP
+  strncpy(dir->path, path, PATH_BUF_LEN);
+  dir->path[PATH_BUF_LEN - 1] = 0;
+  closedir(dir->d);
+  dir->d = opendir(path);
+#else
+  rewinddir(dir->d);
+#endif
+
+  dir->pos = 0;
+  return true;
 }
 
-int dir_get_next_entry(dir_t *dir, char *entry)
+void dir_close(struct mzx_dir *dir)
 {
-  if(!dir)
-    return -1;
-  return dirnext(dir, entry, NULL);
+  if(dir->d)
+  {
+    closedir(dir->d);
+    dir->d = NULL;
+    dir->entries = 0;
+    dir->pos = 0;
+  }
 }
 
-#else // !(CONFIG_NDS || CONFIG_WII)
-
-dir_t *dir_open(const char *path)
+void dir_seek(struct mzx_dir *dir, long offset)
 {
-  return opendir(path);
+  long i;
+
+  if(!dir->d)
+    return;
+
+  dir->pos = CLAMP(offset, 0L, dir->entries);
+
+#ifdef CONFIG_PSP
+  closedir(dir->d);
+  dir->d = opendir(dir->path);
+  if(!dir->d)
+    return;
+#else
+  rewinddir(dir->d);
+#endif
+
+  for(i = 0; i < dir->pos; i++)
+    readdir(dir->d);
 }
 
-void dir_close(dir_t *dir)
-{
-  if(dir)
-    closedir(dir);
-}
-
-int dir_get_next_entry(dir_t *dir, char *entry)
+bool dir_get_next_entry(struct mzx_dir *dir, char *entry)
 {
   struct dirent *inode;
 
-  if(!dir)
-    return -1;
+  if(!dir->d)
+    return false;
 
-  inode = readdir(dir);
+  dir->pos = MIN(dir->pos + 1, dir->entries);
+
+  inode = readdir(dir->d);
   if(!inode)
   {
     entry[0] = 0;
-    return -1;
+    return false;
   }
 
-  strncpy(entry, inode->d_name, MAX_PATH - 1);
-  entry[MAX_PATH - 1] = 0;
-  return 0;
+  strncpy(entry, inode->d_name, PATH_BUF_LEN - 1);
+  entry[PATH_BUF_LEN - 1] = 0;
+  return true;
 }
-
-#endif // CONFIG_NDS || CONFIG_WII
 
 #if defined(CONFIG_AUDIO) || defined(CONFIG_EDITOR)
 

@@ -25,6 +25,10 @@
 
 __M_BEGIN_DECLS
 
+#ifdef CONFIG_UTHASH
+#include "uthash_caseinsensitive.h"
+#endif
+
 struct world;
 struct counter;
 
@@ -36,6 +40,10 @@ typedef int (*gateway_dec_function)(struct world *mzx_world,
 
 struct counter
 {
+#ifdef CONFIG_UTHASH
+  UT_hash_handle ch;
+#endif
+
   int value;
   gateway_write_function gateway_write;
   gateway_dec_function gateway_dec;
@@ -45,11 +53,10 @@ struct counter
 // TODO - Give strings a dynamic length. It would expand
 // set ends up being larger than the current size.
 
-// "storage_space" is just there for show.. the truth is,
-// name and storage share space. It's messy, but fast and
+// Name and storage share space. It's messy, but fast and
 // space efficient.
 
-// storage_space doesn't actually have to have anything,
+// The storage space doesn't actually have to have anything,
 // however (in fact, neither does name). Strings can
 // be used as pointers to hold intermediate or immediate
 // values. For instance, string literals and spliced
@@ -77,12 +84,21 @@ struct counter
 
 struct string
 {
+#ifdef CONFIG_UTHASH
+  UT_hash_handle sh;
+#endif
+
+  // Back reference to the string's position in the list, mandatory
+  // because we're not using a search to find it with uthash. We'll
+  // add it for both though so there doesn't have to be a UTHASH ifdef
+  // in world.c
+  int list_ind;
+
   size_t length;
   size_t allocated_length;
   char *value;
 
   char name[1];
-  char storage_space[1];
 };
 
 // Special counter returns for opening files

@@ -38,6 +38,18 @@ __M_BEGIN_DECLS
 #define CLAMP(x, low, high) \
   (((x) > (high)) ? (high) : (((x) < (low)) ? (low) : (x)))
 
+#define ARRAY_SIZE(x) (sizeof(x) / sizeof(x[0]))
+
+#ifndef DIR_SEPARATOR
+#ifdef __WIN32__
+#define DIR_SEPARATOR "\\"
+#define DIR_SEPARATOR_CHAR '\\'
+#else //!__WIN32__
+#define DIR_SEPARATOR "/"
+#define DIR_SEPARATOR_CHAR '/'
+#endif
+#endif //DIR_SEPARATOR
+
 enum resource_id
 {
   CONFIG_TXT = 0,
@@ -79,32 +91,46 @@ CORE_LIBSPEC ssize_t get_path(const char *file_name, char *dest, unsigned int bu
 ssize_t __get_path(const char *file_name, char *dest, unsigned int buf_len);
 #endif
 
+CORE_LIBSPEC void split_path_filename(const char *source,
+ char *destpath, unsigned int path_buffer_len,
+ char *destfile, unsigned int file_buffer_len);
+
+CORE_LIBSPEC int create_path_if_not_exists(const char *filename);
+
+CORE_LIBSPEC int change_dir_name(char *path_name, const char *dest);
+
+typedef void (*fn_ptr)(void);
+
 struct dso_syms_map
 {
   const char *name;
-  void **sym_ptr;
+  fn_ptr *sym_ptr;
 };
-
-#if defined(CONFIG_NDS) || defined(CONFIG_WII)
-
-#include <sys/dir.h>
-
-#define PATH_BUF_LEN FILENAME_MAX
-typedef DIR_ITER dir_t;
-
-#else // !(CONFIG_NDS || CONFIG_WII)
 
 #include <sys/types.h>
 #include <dirent.h>
 
 #define PATH_BUF_LEN MAX_PATH
-typedef DIR dir_t;
 
-#endif // CONFIG_NDS || CONFIG_WII
+struct mzx_dir {
+#ifdef CONFIG_PSP
+  char path[PATH_BUF_LEN];
+#endif
+  DIR *d;
+  long entries;
+  long pos;
+};
 
-dir_t *dir_open(const char *path);
-void dir_close(dir_t *dir);
-int dir_get_next_entry(dir_t *dir, char *entry);
+bool dir_open(struct mzx_dir *dir, const char *path);
+void dir_close(struct mzx_dir *dir);
+void dir_seek(struct mzx_dir *dir, long offset);
+long dir_tell(struct mzx_dir *dir);
+bool dir_get_next_entry(struct mzx_dir *dir, char *entry);
+
+CORE_LIBSPEC void boyer_moore_index(void *B, size_t b_len,
+ int *index, bool ignore_case);
+CORE_LIBSPEC void *boyer_moore_search(void *A, size_t a_len, void *B, size_t b_len,
+ int *index, bool ignore_case);
 
 #if defined(__WIN32__) && defined(__STRICT_ANSI__)
 CORE_LIBSPEC int strcasecmp(const char *s1, const char *s2);

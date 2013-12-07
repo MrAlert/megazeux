@@ -1,6 +1,7 @@
 /* MegaZeux
  *
  * Copyright (C) 2004 Gilead Kutnick <exophase@adelphia.net>
+ * Copyright (C) 2012 Alice Lauren Rowan <petrifiedrowan@gmail.com>
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License as
@@ -287,7 +288,7 @@ static const int cm118[] = { CMD_ALL, COLOR | STRING, THING, PARAM | STRING,
  IGNORE_TYPE_TO, DIRECTION };
 static const int cm119[] = { IGNORE_TYPE_AT, IMM_S16 | STRING, IMM_S16 | STRING,
  IGNORE_TYPE_TO, IMM_S16 | STRING, IMM_S16 | STRING };
-static const int cm120[] = { CMD_EDGE, CMD_COLOR, IGNORE_TYPE_TO, COLOR };
+static const int cm120[] = { CMD_EDGE, CMD_COLOR, IGNORE_TYPE_TO, COLOR | STRING };
 static const int cm121[] = { IGNORE_TYPE_TO, IGNORE_TYPE_THE, DIRECTION,
  IGNORE_TYPE_IS, STRING };
 static const int cm122[] = { IGNORE_TYPE_TO, IGNORE_TYPE_THE, DIRECTION,
@@ -1702,11 +1703,14 @@ static int match_command(struct mzx_command_rw *cmd, char *error_buffer)
            cmd->param_types[i3])
           {
             // Can allow char if imm is allowed, and can allow imm if
-            // param is allowed
+            // param is allowed.
+            // We must also ignore CMD and IGNORE_TYPE because these
+            // cause the meanings of the bits to become overloaded.
             if(!(((cmd->param_types[i3] & CHARACTER) &&
              (current_command->param_types[i2] & (IMM_S16 | IMM_U16))) ||
              (((cmd->param_types[i3] & (IMM_S16 | IMM_U16)) &&
-             (current_command->param_types[i2] & PARAM)))))
+             (current_command->param_types[i2] & PARAM)))) ||
+             (cmd->param_types[i3] & (CMD | IGNORE_TYPE)))
             {
               print_error(i3, error_buffer, cmd->param_types[i3],
                current_command->param_types[i2]);
@@ -2000,7 +2004,7 @@ int legacy_assemble_line(char *cpos, char *output_buffer, char *error_buffer,
 
 char *assemble_file(char *name, int *size)
 {
-  FILE *input_file = fsafeopen(name, "r");
+  FILE *input_file = fsafeopen(name, "rb");
   char line_buffer[256];
   char bytecode_buffer[256];
   char error_buffer[256];
@@ -2502,7 +2506,7 @@ __editor_maybe_static int disassemble_line(char *cpos, char **next,
 void disassemble_file(char *name, char *program, int program_length,
  int allow_ignores, int base)
 {
-  FILE *output_file = fopen(name, "wb");
+  FILE *output_file = fsafeopen(name, "wb");
   char command_buffer[256];
   char error_buffer[256];
   char *current_robot_pos = program + 1;
@@ -2532,3 +2536,115 @@ void disassemble_file(char *name, char *program, int program_length,
 }
 
 #endif // CONFIG_DEBYTECODE
+
+
+
+int validate_legacy_bytecode(char *bc, int program_length)
+{
+  int i = 1;
+  int new_length = program_length;
+  int cur_command_start = 0, cur_command_length = 0, cur_param_length = 0;
+  int cur_command, p;
+
+  if(!bc)
+    return 0;
+
+  // First -- fix the odd robots that appear in old MZX games,
+  // such as Catacombs of Zeux.
+  if((program_length == 2) || (bc[0] != 0xFF))
+  {
+    bc[0] = 0xFF;
+    bc[1] = 0x0;
+  }
+
+  if(bc[0] != 0xFF)
+    goto err_invalid;
+
+  // One iteration should be a single command.
+  while(1)
+  {
+    cur_command_length = bc[i];
+    i++;
+    if(cur_command_length == 0)
+      break;
+
+    cur_command_start = i;
+
+    if((i + cur_command_length) > program_length)
+      goto err_invalid;
+
+    if(bc[i + cur_command_length] != cur_command_length)
+      goto err_invalid;
+
+    cur_command = bc[i];
+    i++;
+
+    for(p = 0; p < command_list[cur_command].parameters; p++)
+    {
+      int param_type = command_list[cur_command].param_types[p];
+
+      if((param_type & IGNORE_TYPE) || (param_type & CMD))
+        continue;
+
+      cur_param_length = bc[i];
+      if(cur_param_length == 0)
+        cur_param_length = 2;
+
+      // THINGs must be length 0 and smaller than 127
+      if(
+       (param_type & THING) &&
+       ((bc[i] != 0) ||
+       ((bc[i+1] | (bc[i+2] << 8)) > 127)))
+        goto err_invalid;
+
+      i += cur_param_length + 1;
+
+    }
+
+    if(i > cur_command_start + cur_command_length + 1)
+      goto err_invalid;
+
+    if(i > program_length)
+      goto err_invalid;
+
+    i = cur_command_start + cur_command_length + 1;
+  }
+
+  if(i < program_length)
+  {
+    debug("Robot checked for %i but program length is %i; extra removed\n",
+     program_length, i);
+    new_length = i;
+  }
+
+  if(i > program_length)
+    goto err_invalid;
+
+  return new_length;
+
+err_invalid:
+  {
+    int n;
+    char hex_seg[4];
+    char *err_mesg = cmalloc(sizeof(char) * ((cur_command_length + 2) * 3 + 2));
+    err_mesg[0] = 0;
+
+    for(n = cur_command_start - 1;
+     n < (cur_command_start + cur_command_length + 1) &&
+     n < program_length;
+     n++)
+    {
+      snprintf(hex_seg, 4, "%X ", bc[n]);
+      strcat(err_mesg, hex_seg);
+    }
+
+    debug("Prog len: %i    i: %i   bc[0]: %i   bc[1]: %i\n",
+     program_length, i, bc[0], bc[1]);
+
+    debug("Bytecode: %s\n\n", err_mesg);
+
+    free(err_mesg);
+  }
+
+  return 0;
+}

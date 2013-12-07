@@ -35,6 +35,7 @@ __M_BEGIN_DECLS
 #endif
 
 #include "sfx.h"
+#include "util.h"
 
 struct world
 {
@@ -107,11 +108,16 @@ struct world
   int multiplier;
   int divider;
   int c_divisions;
+  int fread_delimiter;
+  int fwrite_delimiter;
+  int bi_shoot_status;
   int bi_mesg_status;
-  char input_file_name[MAX_PATH];
   char output_file_name[MAX_PATH];
-  FILE *input_file;
   FILE *output_file;
+  char input_file_name[MAX_PATH];
+  FILE *input_file;
+  bool input_is_dir;
+  struct mzx_dir input_directory;
   int commands;
   int vlayer_size;
   int vlayer_width;
@@ -186,7 +192,7 @@ struct world
 
 #ifdef CONFIG_EDITOR
   struct editor_config_info editor_conf;
-  bool editing;
+  struct editor_config_info editor_conf_backup;
 #endif
 
   // Keep this open, just once

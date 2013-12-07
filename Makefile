@@ -39,8 +39,13 @@ MKDIR   ?= mkdir
 MV      ?= mv
 RM      ?= rm
 
-SDL_CFLAGS  ?= `sdl-config --cflags`
-SDL_LDFLAGS ?= `sdl-config --libs`
+ifeq (${BUILD_LIBSDL2},)
+SDL_CFLAGS  ?= $(shell sdl-config --cflags)
+SDL_LDFLAGS ?= $(shell sdl-config --libs)
+else
+SDL_CFLAGS  ?= $(shell sdl2-config --cflags | sed 's,-I,-isystem ,g')
+SDL_LDFLAGS ?= $(shell sdl2-config --libs)
+endif
 
 VORBIS_CFLAGS  ?= -I${PREFIX}/include -DOV_EXCLUDE_STATIC_CALLBACKS
 ifneq (${TREMOR},1)
@@ -52,12 +57,13 @@ endif
 MIKMOD_CFLAGS  ?= -I${PREFIX}/include
 MIKMOD_LDFLAGS ?= -L${PREFIX}/lib -lmikmod
 
-ZLIB_CFLAGS  ?= -I${PREFIX}/include
+ZLIB_CFLAGS  ?= -I${PREFIX}/include \
+                -D_FILE_OFFSET_BITS=32 -U_LARGEFILE64_SOURCE
 ZLIB_LDFLAGS ?= -L${PREFIX}/lib -lz
 
 ifeq (${LIBPNG},1)
-LIBPNG_CFLAGS  ?= `libpng12-config --cflags`
-LIBPNG_LDFLAGS ?= `libpng12-config --libs`
+LIBPNG_CFLAGS  ?= $(shell libpng-config --cflags)
+LIBPNG_LDFLAGS ?= $(shell libpng-config --ldflags)
 endif
 
 PTHREAD_LDFLAGS ?= -lpthread
@@ -141,6 +147,14 @@ CFLAGS   += -fstack-protector-all
 CXXFLAGS += -fstack-protector-all
 endif
 endif
+endif
+
+#
+# Linux-arm needs this flag for modular builds.
+#
+ifeq (${SUBPLATFORM},linux-arm)
+CFLAGS += -fPIC
+CXXFLAGS += -fPIC
 endif
 
 endif
@@ -240,7 +254,7 @@ ${build}:
 	${CP} assets/default.chr assets/edit.chr ${build}/assets
 	${CP} assets/smzx.pal ${build}/assets
 	${CP} docs/COPYING.DOC docs/changelog.txt docs/port.txt ${build}/docs
-	${CP} docs/macro.txt docs/keycodes2.png ${build}/docs
+	${CP} docs/macro.txt docs/keycodes.html ${build}/docs
 	${CP} docs/platform_matrix.html ${build}/docs
 	${CP} ${mzxrun} ${build}
 	@if test -f ${mzxrun}.debug; then \

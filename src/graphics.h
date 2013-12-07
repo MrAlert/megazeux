@@ -92,6 +92,7 @@ struct renderer
 struct graphics_data
 {
   Uint32 screen_mode;
+  char default_caption[32];
   struct char_element text_video[SCREEN_W * SCREEN_H];
   Uint8 charset[CHAR_SIZE * CHARSET_SIZE * NUM_CHARSETS];
   struct rgb_color palette[SMZX_PAL_SIZE];
@@ -159,12 +160,14 @@ CORE_LIBSPEC void move_cursor(Uint32 x, Uint32 y);
 CORE_LIBSPEC bool init_video(struct config_info *conf, const char *caption);
 CORE_LIBSPEC bool has_video_initialized(void);
 CORE_LIBSPEC void update_screen(void);
+CORE_LIBSPEC void set_window_caption(const char *caption);
 CORE_LIBSPEC void quit_video(void);
 
 CORE_LIBSPEC void ec_read_char(Uint8 chr, char *matrix);
 CORE_LIBSPEC void ec_change_char(Uint8 chr, char *matrix);
 CORE_LIBSPEC Sint32 ec_load_set_var(char *name, Uint8 pos);
 CORE_LIBSPEC void ec_mem_load_set(Uint8 *chars);
+CORE_LIBSPEC void ec_mem_save_set(Uint8 *chars);
 
 CORE_LIBSPEC void update_palette(void);
 CORE_LIBSPEC void set_gui_palette(void);
@@ -191,6 +194,8 @@ CORE_LIBSPEC void m_show(void);
 
 CORE_LIBSPEC void set_mouse_mul(int width_mul, int height_mul);
 
+char *get_default_caption(void);
+
 void color_string_ext(const char *string, Uint32 x, Uint32 y,
  Uint8 color, Uint32 offset, Uint32 c_offset, bool respect_newline);
 void color_string_ext_special(const char *string, Uint32 x, Uint32 y,
@@ -216,7 +221,6 @@ void get_screen(struct char_element *dest);
 void ec_change_byte(Uint8 chr, Uint8 byte, Uint8 new_value);
 Uint8 ec_read_byte(Uint8 chr, Uint8 byte);
 Sint32 ec_load_set(char *name);
-void ec_mem_save_set(Uint8 *chars);
 
 void set_color_intensity(Uint32 color, Uint32 percent);
 Uint32 get_color_intensity(Uint32 color);

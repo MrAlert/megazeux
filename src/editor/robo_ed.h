@@ -119,6 +119,7 @@ struct robot_state
 
 #ifdef CONFIG_DEBYTECODE
   bool program_modified;
+  bool confirm_changes;
   struct robot *cur_robot;
 #else
   enum validity_types default_invalid;
@@ -130,7 +131,6 @@ struct robot_state
 void robot_editor(struct world *mzx_world, struct robot *cur_robot);
 
 EDITOR_LIBSPEC void init_macros(struct world *mzx_world);
-EDITOR_LIBSPEC void free_extended_macros(struct world *mzx_world);
 
 __M_END_DECLS
 

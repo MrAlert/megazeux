@@ -35,6 +35,7 @@
 #include "../world.h"
 
 #include "board.h"
+#include "configure.h"
 #include "edit.h"
 #include "edit_di.h"
 #include "robo_ed.h"
@@ -599,7 +600,7 @@ void size_pos(struct world *mzx_world)
 {
   struct board *src_board = mzx_world->current_board;
   int dialog_result;
-  struct element *elements[8];
+  struct element *elements[9];
   struct dialog di;
 
   int redo = 1;
@@ -615,23 +616,24 @@ void size_pos(struct world *mzx_world)
 
   do
   {
-    elements[0] = construct_button(15, 15, "OK", 0);
-    elements[1] = construct_button(37, 15, "Center", 1);
-    elements[2] = construct_number_box(15, 4, "Viewport X pos: ",
+    elements[0] = construct_button(13, 15, "OK", 0);
+    elements[1] = construct_button(19, 15, "Center", 1);
+    elements[2] = construct_button(29, 15, "Set as defaults", 2);
+    elements[3] = construct_number_box(15, 4, "Viewport X pos: ",
      0, 79, 0, results + 0);
-    elements[3] = construct_number_box(15, 5, "Viewport Y pos: ",
+    elements[4] = construct_number_box(15, 5, "Viewport Y pos: ",
      0, 24, 0, results + 1);
-    elements[4] = construct_number_box(15, 6, "Viewport Width: ",
+    elements[5] = construct_number_box(15, 6, "Viewport Width: ",
      1, 80, 0, results + 2);
-    elements[5] = construct_number_box(15, 7, "Viewport Height:",
+    elements[6] = construct_number_box(15, 7, "Viewport Height:",
      1, 25, 0, results + 3);
-    elements[6] = construct_number_box(15, 11, "Board Width:    ",
+    elements[7] = construct_number_box(15, 11, "Board Width:    ",
      1, 32767, 0, results + 4);
-    elements[7] = construct_number_box(15, 12, "Board Height:   ",
+    elements[8] = construct_number_box(15, 12, "Board Height:   ",
      1, 32767, 0, results + 5);
 
     construct_dialog(&di, "Board Sizes/Positions", 10, 4, 60, 18,
-     elements, 8, 2);
+     elements, 9, 3);
 
     dialog_result = run_dialog(mzx_world, &di);
     destruct_dialog(&di);
@@ -694,6 +696,19 @@ void size_pos(struct world *mzx_world)
         }
         break;
       }
+      // Set defaults
+      case 2:
+      {
+        struct editor_config_info *conf = &(mzx_world->editor_conf);
+        conf->viewport_x = results[0];
+        conf->viewport_y = results[1];
+        conf->viewport_w = results[2];
+        conf->viewport_h = results[3];
+        conf->board_width = results[4];
+        conf->board_height = results[5];
+        save_local_editor_config(conf, curr_file);
+        break;
+      }
     }
   } while(redo);
 
@@ -725,7 +740,7 @@ void board_info(struct world *mzx_world)
 {
   struct board *src_board = mzx_world->current_board;
   int dialog_result;
-  struct element *elements[8];
+  struct element *elements[9];
   struct dialog di;
   int check_box_results[13] =
   {
@@ -769,25 +784,54 @@ void board_info(struct world *mzx_world)
 
   strcpy(title_string, src_board->board_name);
 
-  elements[0] = construct_button(15, 18, "OK", 0);
-  elements[1] = construct_button(37, 18, "Cancel", 1);
-  elements[2] = construct_input_box(9, 1, "Board name- ",
-   BOARD_NAME_SIZE - 1, 0, title_string);
-  elements[3] = construct_check_box(5, 2, check_box_strings,
-   13, 20, check_box_results);
-  elements[4] = construct_number_box(5, 16, "Time limit- ",
-   0, 32767, 0, &time_limit);
-  elements[5] = construct_radio_button(33, 3, radio_strings_1,
-   3, 19, &radio_result_1);
-  elements[6] = construct_radio_button(33, 8, radio_strings_2,
-   3, 19, &radio_result_2);
-  elements[7] = construct_radio_button(33, 13, radio_strings_3,
-   4, 19, &radio_result_3);
+  do
+  {
+    elements[0] = construct_button(13, 18, "OK", 0);
+    elements[1] = construct_button(19, 18, "Cancel", -1);
+    elements[2] = construct_button(29, 18, "Set as defaults", 1);
+    elements[3] = construct_input_box(9, 1, "Board name- ",
+     BOARD_NAME_SIZE - 1, 0, title_string);
+    elements[4] = construct_check_box(5, 2, check_box_strings,
+     13, 20, check_box_results);
+    elements[5] = construct_number_box(5, 16, "Time limit- ",
+     0, 32767, 0, &time_limit);
+    elements[6] = construct_radio_button(33, 3, radio_strings_1,
+     3, 19, &radio_result_1);
+    elements[7] = construct_radio_button(33, 8, radio_strings_2,
+     3, 19, &radio_result_2);
+    elements[8] = construct_radio_button(33, 13, radio_strings_3,
+     4, 19, &radio_result_3);
 
-  construct_dialog(&di, "Board Settings", 10, 2, 60, 21,
-   elements, 8, 2);
+    construct_dialog(&di, "Board Settings", 10, 2, 60, 21,
+     elements, 9, 3);
 
-  dialog_result = run_dialog(mzx_world, &di);
+    dialog_result = run_dialog(mzx_world, &di);
+    destruct_dialog(&di);
+
+    // Save defaults
+    if(dialog_result == 1)
+    {
+      struct editor_config_info *conf = &(mzx_world->editor_conf);
+      conf->can_shoot = check_box_results[0];
+      conf->can_bomb = check_box_results[1];
+      conf->fire_burns_spaces = check_box_results[2];
+      conf->fire_burns_fakes = check_box_results[3];
+      conf->fire_burns_trees = check_box_results[4];
+      conf->fire_burns_brown = check_box_results[5];
+      conf->forest_to_floor = check_box_results[6];
+      conf->collect_bombs = check_box_results[7];
+      conf->fire_burns_forever = check_box_results[8];
+      conf->restart_if_hurt = check_box_results[9];
+      conf->player_locked_ns = check_box_results[10];
+      conf->player_locked_ew = check_box_results[11];
+      conf->player_locked_att = check_box_results[12];
+      conf->explosions_leave = radio_result_1;
+      conf->saving_enabled = radio_result_2;
+      conf->overlay_enabled = radio_result_3;
+      conf->time_limit = time_limit;
+      save_local_editor_config(conf, curr_file);
+    }
+  } while(dialog_result > 0);
 
   if(!dialog_result)
   {
@@ -817,7 +861,6 @@ void board_info(struct world *mzx_world)
     src_board->time_limit = time_limit;
   }
 
-  destruct_dialog(&di);
   pop_context();
 }
 
@@ -1068,31 +1111,29 @@ void global_info(struct world *mzx_world)
   struct dialog a_di;
   struct dialog b_di;
   struct element *a_elements[15];
-  struct element *b_elements[10];
+  struct element *b_elements[12];
   int dialog_result;
   int redo = 0;
 
   do
   {
     set_confirm_buttons(a_elements);
-    a_elements[2] = construct_board_list(1, 2, "Death board-",
-     0, &death_board);
-    a_elements[3] = construct_number_box(1, 5, "Death X- ",
-     0, 32767, 0, &death_x);
-    a_elements[4] = construct_number_box(1, 6, "Death Y- ",
-     0, 32767, 0, &death_y);
-    a_elements[5] = construct_radio_button(1, 8, radio_strings_1,
-     3, 20, &radio_result_1);
-    a_elements[6] = construct_board_list(30, 2, "Endgame board-",
-     0, &endgame_board);
-    a_elements[7] = construct_number_box(30, 5, "Endgame X- ",
-     0, 32767, 0, &endgame_x);
-    a_elements[8] = construct_number_box(30, 6, "Endgame Y- ",
-     0, 32767, 0, &endgame_y);
-    a_elements[9] = construct_radio_button(30, 8, radio_strings_2,
-     2, 18, &radio_result_2);
-    a_elements[10] = construct_check_box(30, 11, check_box_strings_1,
-     1, 18, check_box_results_1);
+    a_elements[2] = construct_board_list(5, 2, "First board-",
+     0, &first_board);
+    a_elements[3] = construct_color_box(38, 3, "Edging color- ",
+     0, &edge_color);
+    a_elements[4] = construct_label(5+10+4, 5, "Lives"),
+    a_elements[5] = construct_label(32+10+3, 5, "Health"),
+    a_elements[6] = construct_number_box(5, 6, "Starting- ",
+     1, 32767, 0, &starting_lives);
+    a_elements[7] = construct_number_box(5, 7, "Maximum-  ",
+     1, 32767, 0, &lives_limit);
+    a_elements[8] = construct_number_box(32, 6, "Starting- ",
+     1, 32767, 0, &starting_health);
+    a_elements[9] = construct_number_box(32, 7, "Maximum-  ",
+     1, 32767, 0, &health_limit);
+    a_elements[10] = construct_check_box(7, 9, check_box_strings_2,
+     3, 39, check_box_results_2);
     a_elements[11] = construct_button(5, 13, "More", 2);
     a_elements[12] = construct_button(12, 13, "Edit Chars", 3);
     a_elements[13] = construct_button(25, 13, "Edit Dmg", 4);
@@ -1104,24 +1145,6 @@ void global_info(struct world *mzx_world)
     redo = 0;
     set_context(86);
 
-    if(death_board == DEATH_SAME_POS)
-    {
-      death_board = 0;
-      radio_result_1 = 0;
-    }
-
-    if(death_board == NO_DEATH_BOARD)
-    {
-      death_board = 0;
-      radio_result_1 = 1;
-    }
-
-    if(endgame_board == NO_ENDGAME_BOARD)
-    {
-      endgame_board = 0;
-      radio_result_2 = 0;
-    }
-
     dialog_result = run_dialog(mzx_world, &a_di);
     destruct_dialog(&a_di);
 
@@ -1132,25 +1155,48 @@ void global_info(struct world *mzx_world)
         // Returns 1 for previous
         set_context(88);
 
+        if(death_board == DEATH_SAME_POS)
+        {
+          death_board = 0;
+          radio_result_1 = 0;
+        }
+
+        if(death_board == NO_DEATH_BOARD)
+        {
+          death_board = 0;
+          radio_result_1 = 1;
+        }
+
+        if(endgame_board == NO_ENDGAME_BOARD)
+        {
+          endgame_board = 0;
+          radio_result_2 = 0;
+        }
+
         set_confirm_buttons(b_elements);
-        b_elements[2] = construct_board_list(6, 2, "First board-",
-         0, &first_board);
-        b_elements[3] = construct_color_box(38, 3, "Edging color- ",
-         0, &edge_color);
-        b_elements[4] = construct_number_box(6, 5, "Starting lives-  ",
-         1, 32767, 0, &starting_lives);
-        b_elements[5] = construct_number_box(6, 6, "Maximum lives-   ",
-         1, 32767, 0, &lives_limit);
-        b_elements[6] = construct_number_box(6, 8, "Starting health- ",
-         1, 32767, 0, &starting_health);
-        b_elements[7] = construct_number_box(6, 9, "Maximum health-  ",
-         1, 32767, 0, &health_limit);
-        b_elements[8] = construct_button(38, 9, "Previous", 2);
-        b_elements[9] = construct_check_box(6, 11, check_box_strings_2,
-         3, 39, check_box_results_2);
+        b_elements[2] = construct_board_list(1, 2, "Death board-",
+         0, &death_board);
+        b_elements[3] = construct_number_box(1, 5, "Death X- ",
+         0, 32767, 0, &death_x);
+        b_elements[4] = construct_number_box(1, 6, "Death Y- ",
+         0, 32767, 0, &death_y);
+        b_elements[5] = construct_radio_button(1, 8, radio_strings_1,
+         3, 20, &radio_result_1);
+        b_elements[6] = construct_board_list(30, 2, "Endgame board-",
+         0, &endgame_board);
+        b_elements[7] = construct_number_box(30, 5, "Endgame X- ",
+         0, 32767, 0, &endgame_x);
+        b_elements[8] = construct_number_box(30, 6, "Endgame Y- ",
+         0, 32767, 0, &endgame_y);
+        b_elements[9] = construct_radio_button(30, 8, radio_strings_2,
+         2, 18, &radio_result_2);
+        b_elements[10] = construct_check_box(30, 11, check_box_strings_1,
+         1, 18, check_box_results_1);
+
+        b_elements[11] = construct_button(25, 13, "Previous", 2); //38, 9
 
         construct_dialog(&b_di, "Global Settings (Continued)", 10, 4,
-         60, 18, b_elements, 10, 2);
+         60, 18, b_elements, 12, 2);
 
         dialog_result = run_dialog(mzx_world, &b_di);
         destruct_dialog(&b_di);
@@ -1231,30 +1277,81 @@ void global_info(struct world *mzx_world)
 
       case 5:
       {
-        struct robot *cur_robot = &mzx_world->global_robot;
-        // First get name...
-        m_hide();
-        save_screen();
-        draw_window_box(16, 12, 50, 14, DI_DEBUG_BOX, DI_DEBUG_BOX_DARK,
-         DI_DEBUG_BOX_CORNER, 1, 1);
-        write_string("Name for robot:", 18, 13, DI_DEBUG_LABEL, 0);
-        m_show();
-
-        if(intake(mzx_world, cur_robot->robot_name,
-         14, 34, 13, 15, 1, 0, NULL, 0, NULL) != IKEY_ESCAPE)
-        {
-          restore_screen();
-          set_context(87);
-          robot_editor(mzx_world, cur_robot);
-          pop_context();
-        }
-        else
-        {
-          restore_screen();
-        }
+        global_robot(mzx_world);
+        break;
       }
     }
   } while(redo);
 
   pop_context();
+}
+
+void global_robot(struct world *mzx_world)
+{
+  struct robot *cur_robot = &(mzx_world->global_robot);
+  // First get name...
+  m_hide();
+  save_screen();
+  draw_window_box(16, 12, 50, 14, DI_DEBUG_BOX, DI_DEBUG_BOX_DARK,
+  DI_DEBUG_BOX_CORNER, 1, 1);
+  write_string("Name for robot:", 18, 13, DI_DEBUG_LABEL, 0);
+  m_show();
+
+  if(intake(mzx_world, cur_robot->robot_name,
+   14, 34, 13, 15, 1, 0, NULL, 0, NULL) != IKEY_ESCAPE)
+  {
+    restore_screen();
+    set_context(87);
+    robot_editor(mzx_world, cur_robot);
+    pop_context();
+  }
+  else
+  {
+    restore_screen();
+  }
+}
+
+/*
+* +-Goto-------------------------------+
+* |
+* |  X-[00000][-][+]  Y-[00000][-][+]  |
+* |
+* |      [  Ok  ]        [Cancel]      |
+* |
+* +------------------------------------+
+*/
+
+int board_goto(struct world *mzx_world,
+ int *cursor_board_x, int *cursor_board_y)
+{
+  int result = 0;
+  int goto_x = *cursor_board_x;
+  int goto_y = *cursor_board_y;
+  struct element *elements[4];
+  struct dialog di;
+
+  struct board *cur_board = mzx_world->current_board;
+  int board_width = cur_board->board_width;
+  int board_height = cur_board->board_height;
+
+  elements[0] = construct_button( 7, 4, "  Ok  ", 0);
+  elements[1] = construct_button(23, 4, "Cancel", 1);
+  elements[2] = construct_number_box( 3, 2, "X-",
+   0, board_width - 1, 0, &goto_x);
+  elements[3] = construct_number_box(20, 2, "Y-",
+   0, board_height - 1, 0, &goto_y);
+
+  construct_dialog(&di, "Goto board location",
+   21, 7, 38, 7, elements, ARRAY_SIZE(elements), 2);
+
+  result = run_dialog(mzx_world, &di);
+  destruct_dialog(&di);
+
+  if(!result)
+  {
+    *cursor_board_x = goto_x;
+    *cursor_board_y = goto_y;
+  }
+
+  return result;
 }

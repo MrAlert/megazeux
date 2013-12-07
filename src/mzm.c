@@ -24,13 +24,14 @@
 #include "data.h"
 #include "idput.h"
 #include "world.h"
+#include "validation.h"
 
 // This is assumed to not go over the edges.
 
 void save_mzm(struct world *mzx_world, char *name, int start_x, int start_y,
  int width, int height, int mode, int savegame)
 {
-  FILE *output_file = fopen(name, "wb");
+  FILE *output_file = fopen_unsafe(name, "wb");
 
   if(output_file)
   {
@@ -42,11 +43,7 @@ void save_mzm(struct world *mzx_world, char *name, int start_x, int start_y,
     if(savegame)
       savegame = 1;
 
-#ifdef CONFIG_DEBYTECODE
     fwrite("MZM3", 4, 1, output_file);
-#else
-    fwrite("MZM2", 4, 1, output_file);
-#endif
 
     fputw(width, output_file);
     fputw(height, output_file);
@@ -56,12 +53,8 @@ void save_mzm(struct world *mzx_world, char *name, int start_x, int start_y,
     fputc(storage_mode, output_file);
     fputc(0, output_file);
 
-#ifdef CONFIG_DEBYTECODE
-    fputw(mzx_world->version, output_file);
+    fputw(WORLD_VERSION, output_file);
     fseek(output_file, 3, SEEK_CUR);
-#else
-    fseek(output_file, 1, SEEK_CUR);
-#endif
 
     switch(mode)
     {
@@ -153,7 +146,7 @@ void save_mzm(struct world *mzx_world, char *name, int start_x, int start_y,
           for(i = 0; i < num_robots; i++)
           {
             // Save each robot
-            save_robot(robot_list[robot_numbers[i]], output_file, savegame);
+            save_robot(robot_list[robot_numbers[i]], output_file, savegame, WORLD_VERSION);
           }
         }
 
@@ -225,6 +218,7 @@ void save_mzm(struct world *mzx_world, char *name, int start_x, int start_y,
           offset += line_skip;
         }
 
+
         break;
       }
     }
@@ -238,7 +232,13 @@ void save_mzm(struct world *mzx_world, char *name, int start_x, int start_y,
 int load_mzm(struct world *mzx_world, char *name, int start_x, int start_y,
  int mode, int savegame)
 {
-  FILE *input_file = fopen(name, "rb");
+  FILE *input_file;
+
+  if(!(input_file = fopen_unsafe(name, "rb")))
+  {
+    val_error(FILE_DOES_NOT_EXIST, 0);
+    goto err_out;
+  }
 
   if(input_file)
   {
@@ -249,13 +249,19 @@ int load_mzm(struct world *mzx_world, char *name, int start_x, int start_y,
     int num_robots;
     int robots_location;
 
-#ifdef CONFIG_DEBYTECODE
-    int mzm_world_version = VERSION_PROGRAM_BYTECODE;
-#else
-    int mzm_world_version = WORLD_VERSION; // FIXME: hack
-#endif
+    int data_start;
+    int expected_data_size;
+    int file_length;
 
-    fread(magic_string, 4, 1, input_file);
+    // MegaZeux 2.83 is the last version that won't save the ver,
+    // so if we don't have a ver, just act like it's 2.83
+    int mzm_world_version = 0x0253;
+
+    file_length = ftell_and_rewind(input_file);
+
+    if(!fread(magic_string, 4, 1, input_file))
+      goto err_invalid;
+
     magic_string[4] = 0;
 
     if(!strncmp(magic_string, "MZMX", 4))
@@ -283,11 +289,10 @@ int load_mzm(struct world *mzx_world, char *name, int start_x, int start_y,
     }
     else
 
-#ifdef CONFIG_DEBYTECODE
     if(!strncmp(magic_string, "MZM3", 4))
     {
       // MZM3 is like MZM2, except the robots are stored as source code if
-      // savegame_mode is 0.
+      // savegame_mode is 0 and version >= VERSION_PROGRAM_SOURCE.
       width = fgetw(input_file);
       height = fgetw(input_file);
       robots_location = fgetd(input_file);
@@ -299,11 +304,31 @@ int load_mzm(struct world *mzx_world, char *name, int start_x, int start_y,
     }
 
     else
-#endif /* CONFIG_DEBYTECODE */
+      goto err_invalid;
+
+    data_start = ftell(input_file);
+    expected_data_size = (width * height) * (storage_mode ? 2 : 6);
+
+    // Validate
+    if(
+     (savegame_mode > 1) || (savegame_mode < 0) // Invalid save mode
+     || (storage_mode > 1) || (storage_mode < 0) // Invalid storage mode
+     || (file_length - data_start < expected_data_size) // not enough space to store data
+     || (file_length < robots_location) // The end of file is before the robot offset
+     || (robots_location && (expected_data_size + data_start > robots_location)) // robots offset before data end
+     )
+      goto err_invalid;
+
+    // If the mzm version is newer than the MZX version, show a message and continue.
+    if(mzm_world_version > WORLD_VERSION)
     {
-      // Failure, abort
-      fclose(input_file);
-      return -1;
+      val_error(MZM_FILE_VERSION_TOO_RECENT, mzm_world_version);
+    }
+
+    // If the MZM is a save MZM but we're not loading at runtime, show a message and continue.
+    if(savegame_mode > savegame)
+    {
+      val_error(MZM_FILE_FROM_SAVEGAME, 0);
     }
 
     switch(mode)
@@ -357,25 +382,35 @@ int load_mzm(struct world *mzx_world, char *name, int start_x, int start_y,
               for(x = 0; x < effective_width; x++, offset++)
               {
                 current_id = (enum thing)fgetc(input_file);
-                if(is_robot(current_id))
+
+                if(current_id >= SENSOR)
                 {
-                  robot_x_locations[current_robot_loaded] = x + start_x;
-                  robot_y_locations[current_robot_loaded] = y + start_y;
-                  current_robot_loaded++;
+                  if(is_robot(current_id))
+                  {
+                    robot_x_locations[current_robot_loaded] = x + start_x;
+                    robot_y_locations[current_robot_loaded] = y + start_y;
+                    current_robot_loaded++;
+                  }
+                  // Wipe a bunch of crap we don't want in MZMs with spaces
+                  else
+                    current_id = 0;
                 }
 
                 src_id = (enum thing)level_id[offset];
 
-                if(src_id == SENSOR)
-                  clear_sensor_id(src_board, level_param[offset]);
-                else
+                if(src_id >= SENSOR)
+                {
+                  if(src_id == SENSOR)
+                    clear_sensor_id(src_board, level_param[offset]);
+                  else
 
-                if(is_signscroll(src_id))
-                  clear_scroll_id(src_board, level_param[offset]);
-                else
+                  if(is_signscroll(src_id))
+                    clear_scroll_id(src_board, level_param[offset]);
+                  else
 
-                if(is_robot(src_id))
-                  clear_robot_id(src_board, level_param[offset]);
+                  if(is_robot(src_id))
+                    clear_robot_id(src_board, level_param[offset]);
+                }
 
                 // Don't allow the player to be overwritten
                 if(src_id != PLAYER)
@@ -386,6 +421,14 @@ int load_mzm(struct world *mzx_world, char *name, int start_x, int start_y,
                   level_under_id[offset] = fgetc(input_file);
                   level_under_param[offset] = fgetc(input_file);
                   level_under_color[offset] = fgetc(input_file);
+
+                  // We don't want this on the under layer, thanks
+                  if(level_under_id[offset] >= SENSOR)
+                  {
+                    level_under_id[offset] = 0;
+                    level_under_param[offset] = 0;
+                    level_under_color[offset] = 7;
+                  }
                 }
                 else
                 {
@@ -421,19 +464,18 @@ int load_mzm(struct world *mzx_world, char *name, int start_x, int start_y,
               int offset;
               int new_param;
 
-#ifdef CONFIG_DEBYTECODE
               // If we're loading a "runtime MZM" then it means that we're loading
               // bytecode. And to do this we must both be in-game and must be
               // running the same version this was made in. But since loading
               // dynamically created MZMs in the editor is still useful, we'll just
               // dummy out the robots.
 
-              if(savegame_mode && ((savegame == 0) ||
-               ((mzx_world->version != mzm_world_version) &&
-               (mzm_world_version >= VERSION_PROGRAM_SOURCE))))
+              if((savegame_mode > savegame) ||
+               (WORLD_VERSION < mzm_world_version))
               {
                 fseek(input_file, robots_location, SEEK_SET);
 
+                set_validation_suppression(1);
                 for(i = 0; i < num_robots; i++)
                 {
                   current_x = robot_x_locations[i];
@@ -442,10 +484,15 @@ int load_mzm(struct world *mzx_world, char *name, int start_x, int start_y,
                   // Unfortunately, getting the actual character for the robot is
                   // kind of a lot of work right now. We have to load it then
                   // throw it away.
+
+                  // If this is from a futer version and the format changed, we'll
+                  // just end up with an 'R' char, but we don't plan on changing
+                  // the robot format until the EBML overhaul (which will use
+                  // different code).
                   if(current_x != -1)
                   {
                     cur_robot = load_robot_allocate(input_file, savegame_mode,
-                     mzm_world_version);
+                     mzm_world_version, mzx_world->version);
 
                     offset = current_x + (current_y * board_width);
                     level_id[offset] = CUSTOM_BLOCK;
@@ -453,20 +500,34 @@ int load_mzm(struct world *mzx_world, char *name, int start_x, int start_y,
                     clear_robot(cur_robot);
                   }
                 }
+                set_validation_suppression(-1);
               }
               else
-#endif /* CONFIG_DEBYTECODE */
               {
                 fseek(input_file, robots_location, SEEK_SET);
 
                 for(i = 0; i < num_robots; i++)
                 {
+                  int check_val = fgetw(input_file);
+                  fseek(input_file, -2, SEEK_CUR);
+                  if(check_val < 0)
+                  {
+                    val_error(WORLD_ROBOT_MISSING, ftell(input_file));
+                    set_validation_suppression(1);
+                  }
+
                   cur_robot = load_robot_allocate(input_file, savegame_mode,
-                   mzm_world_version);
+                   mzm_world_version, mzx_world->version);
                   current_x = robot_x_locations[i];
                   current_y = robot_y_locations[i];
                   cur_robot->xpos = current_x;
                   cur_robot->ypos = current_y;
+
+#ifdef CONFIG_DEBYTECODE
+                  // If we're loading source code at runtime, we need to compile it
+                  if(savegame_mode < savegame)
+                    prepare_robot_bytecode(cur_robot);
+#endif
 
                   if(current_x != -1)
                   {
@@ -657,7 +718,15 @@ int load_mzm(struct world *mzx_world, char *name, int start_x, int start_y,
     fclose(input_file);
   }
 
+  set_validation_suppression(-1);
   return 0;
+
+err_invalid:
+  val_error(MZM_FILE_INVALID, 0);
+  fclose(input_file);
+err_out:
+  set_validation_suppression(-1);
+  return -1;
 }
 
 

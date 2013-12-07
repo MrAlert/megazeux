@@ -17,6 +17,9 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
+// TODO: Confirmation dialog for mainstream releases (currently DBC-only)
+// FIXME: Confirmation dialog appears when the source hasn't been modified sometimes
+
 // Reconstructed robot editor. This is only a shell - the actual
 // robot assembly/disassembly code is in rasm.cpp.
 
@@ -28,6 +31,7 @@
 #include <math.h>
 
 #include "../rasm.h"
+#include "../game.h"
 #include "../world.h"
 #include "../event.h"
 #include "../window.h"
@@ -49,9 +53,10 @@
 #include <limits.h>
 #endif
 
-#ifdef CONFIG_X11
+#if defined(CONFIG_X11) && defined(CONFIG_SDL)
 #include "SDL.h"
 #include "SDL_syswm.h"
+#include "render_sdl.h"
 #endif
 
 #define combine_colors(a, b)  \
@@ -1305,25 +1310,35 @@ static bool copy_selection_to_buffer(struct robot_state *rstate)
   return TRUE;
 }
 
-#elif defined(CONFIG_X11)
+#elif defined(CONFIG_X11) && defined(CONFIG_SDL)
 
+#if SDL_VERSION_ATLEAST(2,0,0)
+static int copy_buffer_to_X11_selection(void *userdata, SDL_Event *event)
+#else
 static int copy_buffer_to_X11_selection(const SDL_Event *event)
+#endif
 {
   XSelectionRequestEvent *request;
+#if SDL_VERSION_ATLEAST(2,0,0)
+  SDL_Window *window = userdata;
+#else
+  SDL_Window *window = NULL;
+#endif
   char *dest_data, *dest_ptr;
+  XEvent response, *xevent;
   SDL_SysWMinfo info;
   int i, line_length;
   Display *display;
-  XEvent response;
 
   if(event->type != SDL_SYSWMEVENT)
     return 1;
 
-  if(event->syswm.msg->event.xevent.type != SelectionRequest || !copy_buffer)
+  xevent = SDL_SysWMmsg_GetXEvent(event->syswm.msg);
+  if(xevent->type != SelectionRequest || !copy_buffer)
     return 0;
 
   SDL_VERSION(&info.version);
-  SDL_GetWMInfo(&info);
+  SDL_GetWindowWMInfo(window, &info);
 
   display = info.info.x11.display;
   dest_data = cmalloc(copy_buffer_total_length + 1);
@@ -1342,7 +1357,7 @@ static int copy_buffer_to_X11_selection(const SDL_Event *event)
   memcpy(dest_ptr, copy_buffer[i], line_length);
   dest_ptr[line_length] = 0;
 
-  request = &(event->syswm.msg->event.xevent.xselectionrequest);
+  request = &(SDL_SysWMmsg_GetXEvent(event->syswm.msg)->xselectionrequest);
   response.xselection.type = SelectionNotify;
   response.xselection.display = request->display;
   response.xselection.selection = request->selection;
@@ -1364,27 +1379,29 @@ static int copy_buffer_to_X11_selection(const SDL_Event *event)
 
 static void copy_buffer_to_selection(void)
 {
+  SDL_Window *window = SDL_GetWindowFromID(sdl_window_id);
   SDL_SysWMinfo info;
 
   SDL_VERSION(&info.version);
 
-  if(!SDL_GetWMInfo(&info) || (info.subsystem != SDL_SYSWM_X11))
+  if(!SDL_GetWindowWMInfo(window, &info) || (info.subsystem != SDL_SYSWM_X11))
     return;
 
   XSetSelectionOwner(info.info.x11.display, XA_PRIMARY,
     info.info.x11.window, CurrentTime);
 
   SDL_EventState(SDL_SYSWMEVENT, SDL_ENABLE);
-  SDL_SetEventFilter(copy_buffer_to_X11_selection);
+  SDL_SetEventFilter(copy_buffer_to_X11_selection, window);
 }
 
 static bool copy_selection_to_buffer(struct robot_state *rstate)
 {
+  SDL_Window *window = SDL_GetWindowFromID(sdl_window_id);
   int selection_format, line_length, ret_type;
   char line_buffer[COMMAND_BUFFER_LEN];
   unsigned long int nbytes, overflow;
   unsigned char *src_data, *src_ptr;
-  Window window, owner;
+  Window xwindow, owner;
   Atom selection_type;
   SDL_SysWMinfo info;
   Display *display;
@@ -1392,20 +1409,20 @@ static bool copy_selection_to_buffer(struct robot_state *rstate)
 
   SDL_VERSION(&info.version);
 
-  if(!SDL_GetWMInfo(&info) || (info.subsystem != SDL_SYSWM_X11))
+  if(!SDL_GetWindowWMInfo(window, &info) || (info.subsystem != SDL_SYSWM_X11))
     return ret;
 
   display = info.info.x11.display;
-  window = info.info.x11.window;
+  xwindow = info.info.x11.window;
   owner = XGetSelectionOwner(display, XA_PRIMARY);
 
-  if((owner == None) || (owner == window))
+  if((owner == None) || (owner == xwindow))
     return ret;
 
   XConvertSelection(display, XA_PRIMARY, XA_STRING, None,
     owner, CurrentTime);
 
-  info.info.x11.lock_func();
+  XLockDisplay(display);
 
   ret_type =
     XGetWindowProperty(display, owner,
@@ -1437,7 +1454,7 @@ static bool copy_selection_to_buffer(struct robot_state *rstate)
   ret = true;
 
 err_unlock:
-  info.info.x11.unlock_func();
+  XUnlockDisplay(display);
   return ret;
 }
 
@@ -1570,7 +1587,7 @@ err_release:
   return ret;
 }
 
-#else // !__WIN32__ && !CONFIG_X11 && !SDL_VIDEO_DRIVER_QUARTZ
+#else // !__WIN32__ && !(CONFIG_X11 && CONFIG_SDL) && !SDL_VIDEO_DRIVER_QUARTZ
 
 static inline void copy_buffer_to_selection(void) {}
 
@@ -1688,7 +1705,7 @@ static void export_block(struct robot_state *rstate, int region_default)
   struct robot_line *end_rline;
   int export_region = region_default;
   int export_type = 0;
-  char export_name[64];
+  char export_name[MAX_PATH];
   int num_formats = 1;
   int num_elements;
   const char *export_ext[] = { ".TXT", NULL, NULL };
@@ -1732,7 +1749,7 @@ static void export_block(struct robot_state *rstate, int region_default)
   export_name[0] = 0;
 
   if(!file_manager(mzx_world, export_ext, ".txt", export_name,
-   "Export robot", 1, 1, elements, num_elements, 3, 0))
+   "Export robot", 1, 1, elements, num_elements, 3))
   {
     FILE *export_file;
 
@@ -1751,7 +1768,7 @@ static void export_block(struct robot_state *rstate, int region_default)
     if(export_type)
     {
       add_ext(export_name, ".bc");
-      export_file = fopen(export_name, "wb");
+      export_file = fopen_unsafe(export_name, "wb");
 
       fputc(0xFF, export_file);
 
@@ -1768,7 +1785,7 @@ static void export_block(struct robot_state *rstate, int region_default)
 #endif
     {
       add_ext(export_name, ".txt");
-      export_file = fopen(export_name, "w");
+      export_file = fopen_unsafe(export_name, "w");
 
       while(current_rline != end_rline)
       {
@@ -1785,7 +1802,7 @@ static void export_block(struct robot_state *rstate, int region_default)
 static void import_block(struct world *mzx_world, struct robot_state *rstate)
 {
   const char *txt_ext[] = { ".TXT", NULL, NULL };
-  char import_name[128];
+  char import_name[MAX_PATH];
   char line_buffer[256];
   FILE *import_file;
 #ifndef CONFIG_DEBYTECODE
@@ -1797,7 +1814,7 @@ static void import_block(struct world *mzx_world, struct robot_state *rstate)
   if(choose_file(mzx_world, txt_ext, import_name, "Import Robot", 1))
     return;
 
-  import_file = fopen(import_name, "r");
+  import_file = fopen_unsafe(import_name, "rb");
 
   rstate->command_buffer = line_buffer;
 
@@ -3222,6 +3239,8 @@ void robot_editor(struct world *mzx_world, struct robot *cur_robot)
   char arg_types[32], *next;
 #endif
 
+  set_caption(mzx_world, mzx_world->current_board, cur_robot, 1);
+
   rstate.current_line = 0;
   rstate.current_rline = &base;
   rstate.total_lines = 0;
@@ -3246,6 +3265,7 @@ void robot_editor(struct world *mzx_world, struct robot *cur_robot)
   rstate.size = 0;
   rstate.cur_robot = cur_robot;
   rstate.program_modified = false;
+  rstate.confirm_changes = false;
   base.next = NULL;
 #else
   rstate.size = 2;
@@ -3376,6 +3396,7 @@ void robot_editor(struct world *mzx_world, struct robot *cur_robot)
     {
       update_program_status(&rstate, rstate.base->next, NULL);
       rstate.program_modified = false;
+      rstate.confirm_changes = true;
     }
 #endif
 
@@ -3969,8 +3990,19 @@ void robot_editor(struct world *mzx_world, struct robot *cur_robot)
         update_current_line(&rstate);
 
 #ifdef CONFIG_DEBYTECODE
-        cur_robot->program_source = package_program(rstate.base->next,
-         NULL, &(cur_robot->program_source_length), cur_robot->program_source);
+        if(rstate.confirm_changes)
+        {
+          char confirm_prompt[80] = "Program modified. Save changes?";
+          int confirm_changes_res = ask_yes_no(mzx_world, confirm_prompt);
+
+          if(confirm_changes_res < 0)
+            key = 0;
+
+          if(!confirm_changes_res)
+            cur_robot->program_source = package_program(rstate.base->next,
+             NULL, &(cur_robot->program_source_length), cur_robot->program_source);
+
+        }
 #endif
         if(validate_lines(&rstate, 0))
           key = 0;
@@ -4259,17 +4291,4 @@ void robot_editor(struct world *mzx_world, struct robot *cur_robot)
 void init_macros(struct world *mzx_world)
 {
   memcpy(macros, mzx_world->editor_conf.default_macros, 5 * 64);
-}
-
-void free_extended_macros(struct world *mzx_world)
-{
-  int i;
-
-  if(!mzx_world->editor_conf.extended_macros)
-    return;
-
-  for(i = 0; i < mzx_world->editor_conf.num_extended_macros; i++)
-    free_macro(mzx_world->editor_conf.extended_macros[i]);
-
-  free(mzx_world->editor_conf.extended_macros);
 }

@@ -30,6 +30,10 @@ bool append_world(struct world *mzx_world, const char *file);
 void create_blank_world(struct world *mzx_world);
 void set_update_done_current(struct world *mzx_world);
 
+void move_current_board(struct world *mzx_world, int new_position);
+
+char get_default_id_char(int id);
+
 __M_END_DECLS
 
 #endif // __EDITOR_WORLD_H

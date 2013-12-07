@@ -4,28 +4,43 @@
 
 STRIP   ?= strip
 
+CROSS_COMPILE_X86_CC  ?= i686-apple-darwin10-gcc-4.2.1
+CROSS_COMPILE_X86_CXX ?= i686-apple-darwin10-g++-4.2.1
+CROSS_COMPILE_PPC_CC  ?= powerpc-apple-darwin10-gcc-4.2.1
+CROSS_COMPILE_PPC_CXX ?= powerpc-apple-darwin10-g++-4.2.1
+
 ifeq (${ARCH},)
 ARCH := i686
 endif
 
 ifeq (${ARCH},i686)
-CC        := i686-apple-darwin10-gcc-4.2.1 -mmacosx-version-min=10.4
-CXX       := i686-apple-darwin10-g++-4.2.1 -mmacosx-version-min=10.4
+CC        := ${CROSS_COMPILE_X86_CC}  -mmacosx-version-min=10.4
+CXX       := ${CROSS_COMPILE_X86_CXX} -mmacosx-version-min=10.4
 REAL_ARCH := i686
-else ifeq (${ARCH},amd64)
-CC        := i686-apple-darwin10-gcc-4.2.1 -m64 -mmacosx-version-min=10.5
-CXX       := i686-apple-darwin10-g++-4.2.1 -m64 -mmacosx-version-min=10.5
+else
+
+ifeq (${ARCH},amd64)
+CC        := ${CROSS_COMPILE_X86_CC}  -m64 -mmacosx-version-min=10.5
+CXX       := ${CROSS_COMPILE_X86_CXX} -m64 -mmacosx-version-min=10.5
 REAL_ARCH := amd64
-else ifeq (${ARCH},ppc)
-CC        := powerpc-apple-darwin10-gcc-4.2.1 -mmacosx-version-min=10.4
-CXX       := powerpc-apple-darwin10-g++-4.2.1 -mmacosx-version-min=10.4
+else
+
+ifeq (${ARCH},ppc)
+CC        := ${CROSS_COMPILE_PPC_CC}  -mmacosx-version-min=10.4
+CXX       := ${CROSS_COMPILE_PPC_CXX} -mmacosx-version-min=10.4
 REAL_ARCH := ppc
-else ifeq (${ARCH},ppc64)
-CC        := powerpc-apple-darwin10-gcc-4.2.1 -m64 -mmacosx-version-min=10.4
-CXX       := powerpc-apple-darwin10-g++-4.2.1 -m64 -mmacosx-version-min=10.4
+else
+
+ifeq (${ARCH},ppc64)
+CC        := ${CROSS_COMPILE_PPC_CC}  -m64 -mmacosx-version-min=10.4
+CXX       := ${CROSS_COMPILE_PPC_CXX} -m64 -mmacosx-version-min=10.4
 REAL_ARCH := ppc64
 else
+
 REAL_ARCH := $(error Invalid architecture selection)
+endif
+endif
+endif
 endif
 
 DSOLDFLAGS = -dynamiclib
@@ -34,11 +49,16 @@ DSOPOST    = .dylib
 DSORPATH   =
 DSOSONAME  = -install_name @executable_path/
 
-SDL_CFLAGS  ?= `${PREFIX}/bin/sdl-config --cflags`
-SDL_LDFLAGS ?= `${PREFIX}/bin/sdl-config --libs`
+ifeq (${BUILD_LIBSDL2},)
+SDL_CFLAGS  ?= $(shell ${PREFIX}/bin/sdl-config --cflags)
+SDL_LDFLAGS ?= $(shell ${PREFIX}/bin/sdl-config --libs)
+else
+SDL_CFLAGS  ?= $(shell ${PREFIX}/bin/sdl2-config --cflags)
+SDL_LDFLAGS ?= $(shell ${PREFIX}/bin/sdl2-config --libs)
+endif
 
-LIBPNG_CFLAGS  ?= `${PREFIX}/bin/libpng12-config --cflags`
-LIBPNG_LDFLAGS ?= `${PREFIX}/bin/libpng12-config --libs`
+LIBPNG_CFLAGS  ?= $(shell ${PREFIX}/bin/libpng-config --cflags)
+LIBPNG_LDFLAGS ?= $(shell ${PREFIX}/bin/libpng-config --ldflags)
 
 arch/darwin/SDLMain.o: arch/darwin/SDLMain.m
 	$(if ${V},,@echo "  CC      " $<)

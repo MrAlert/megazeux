@@ -153,9 +153,10 @@ bool append_world(struct world *mzx_world, const char *file)
   struct board *cur_board;
   int board_width, board_height;
   char *level_id, *level_param;
+  int input_version;
   FILE *fp;
 
-  fp = try_load_world(file, false, NULL, NULL);
+  fp = try_load_world(file, false, &input_version, NULL);
   if(!fp)
     return false;
 
@@ -195,7 +196,8 @@ bool append_world(struct world *mzx_world, const char *file)
   // Append boards
   for(i = old_num_boards; i < old_num_boards + num_boards; i++)
   {
-    mzx_world->board_list[i] = load_board_allocate(fp, 0, mzx_world->version);
+    mzx_world->board_list[i] =
+     load_board_allocate(fp, 0, input_version, mzx_world->version);
     cur_board = mzx_world->board_list[i];
   }
 
@@ -257,7 +259,7 @@ void create_blank_world(struct world *mzx_world)
   mzx_world->num_boards = 1;
   mzx_world->num_boards_allocated = 1;
   mzx_world->board_list = cmalloc(sizeof(struct board *));
-  mzx_world->board_list[0] = create_blank_board();
+  mzx_world->board_list[0] = create_blank_board(&(mzx_world->editor_conf));
   mzx_world->current_board_id = 0;
   mzx_world->current_board = mzx_world->board_list[0];
 
@@ -321,4 +323,46 @@ void set_update_done_current(struct world *mzx_world)
 
     mzx_world->update_done_size = size;
   }
+}
+
+void move_current_board(struct world *mzx_world, int new_position)
+{
+  int i, i2;
+  int num_boards = mzx_world->num_boards;
+  int old_position = mzx_world->current_board_id;
+  struct board **board_list = mzx_world->board_list;
+  struct board **new_board_list = ccalloc(num_boards, sizeof(struct board *));
+  int *board_id_translation_list = ccalloc(num_boards, sizeof(int));
+
+  // Copy the list and shift all boards necessary
+  for(i = 0; i < num_boards; i++)
+  {
+    // This works easier if we start with the new table and
+    // figure out where to copy from the old table.
+    i2 = i - (i >= new_position) +
+     (i >= (old_position + (old_position > new_position)));
+
+    // As it turns out, we'll always have a duplicate of something
+    // else where the new position is this way, ignore it so we
+    // don't mess up the translation table.
+    if(i != new_position)
+    {
+      board_id_translation_list[i2] = i;
+      new_board_list[i] = board_list[i2];
+    }
+  }
+
+  // Insert the old board
+  board_id_translation_list[old_position] = new_position;
+  new_board_list[new_position] = board_list[old_position];
+
+  refactor_board_list(mzx_world, new_board_list, num_boards,
+   board_id_translation_list);
+
+  free(board_id_translation_list);
+}
+
+char get_default_id_char(int id)
+{
+  return def_id_chars[id];
 }

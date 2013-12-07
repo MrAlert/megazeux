@@ -22,16 +22,54 @@
 #define __EDITOR_CONFIGURE_H
 
 #include "../compat.h"
+#include "../const.h"
 
 __M_BEGIN_DECLS
 
 #include "macro.h"
+
+struct jump_point
+{
+  int board_id;
+  int dest_x;
+  int dest_y;
+  char name[BOARD_NAME_SIZE + 1];
+};
 
 struct editor_config_info
 {
   // Board editor options
   int editor_space_toggles;
   int bedit_hhelp;
+  int editor_tab_focuses_view;
+
+  // Defaults for new boards
+  int viewport_x;
+  int viewport_y;
+  int viewport_w;
+  int viewport_h;
+  int board_width;
+  int board_height;
+  int can_shoot;
+  int can_bomb;
+  int fire_burns_spaces;
+  int fire_burns_fakes;
+  int fire_burns_trees;
+  int fire_burns_brown;
+  int fire_burns_forever;
+  int forest_to_floor;
+  int collect_bombs;
+  int restart_if_hurt;
+  int player_locked_ns;
+  int player_locked_ew;
+  int player_locked_att;
+  int time_limit;
+  int explosions_leave;
+  int saving_enabled;
+  int overlay_enabled;
+
+  // Char editor options
+  int undo_history_size;
 
   // Robot editor options
   bool editor_enter_splits;
@@ -51,6 +89,10 @@ struct editor_config_info
   int num_extended_macros;
   int num_macros_allocated;
   struct ext_macro **extended_macros;
+
+  // Jump points
+  int num_jump_points;
+  struct jump_point *jump_points;
 };
 
 typedef void (* editor_config_function)(struct editor_config_info *conf,
@@ -61,6 +103,9 @@ void set_editor_config_from_file(struct editor_config_info *conf,
 void default_editor_config(struct editor_config_info *conf);
 void set_editor_config_from_command_line(struct editor_config_info *conf,
  int *argc, char *argv[]);
+
+void save_local_editor_config(struct editor_config_info *conf,
+ const char *mzx_file_path);
 
 __M_END_DECLS
 

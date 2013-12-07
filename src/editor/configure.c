@@ -21,6 +21,7 @@
 
 #include "../counter.h"
 #include "../configure.h"
+#include "../const.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -214,6 +215,236 @@ static void config_editor_enter_splits(struct editor_config_info *conf,
   conf->editor_enter_splits = strtol(value, NULL, 10);
 }
 
+static void config_editor_tab_focus(struct editor_config_info *conf,
+ char *name, char *value, char *extended_data)
+{
+  conf->editor_tab_focuses_view = CLAMP(strtol(value, NULL, 10), 0, 1);
+}
+
+static void config_undo_history_size(struct editor_config_info *conf,
+ char *name, char *value, char *extended_data)
+{
+  conf->undo_history_size = strtol(value, NULL, 10);
+}
+
+static void config_saved_positions(struct editor_config_info *conf,
+ char *name, char *value, char *extended_data)
+{
+  int p = conf->num_jump_points;
+  char *board_id = NULL, *board_x = NULL, *board_y = NULL;
+
+  if(!(board_id = strchr(value, ',')))
+    return;
+  board_id[0] = '\0';
+  board_id++;
+
+  if(!(board_x = strchr(board_id, ',')))
+    return;
+  board_x[0] = '\0';
+  board_x++;
+
+  if(!(board_y = strchr(board_x, ',')))
+    return;
+  board_y[0] = '\0';
+  board_y++;
+
+  // Verification of this will have to be done when the editor
+  // attempts to do a jump.
+
+  // Add to the list
+
+  if(conf->num_jump_points == 0)
+    conf->jump_points = cmalloc(0);
+
+  conf->num_jump_points++;
+  conf->jump_points = crealloc(conf->jump_points,
+   sizeof(struct jump_point) * conf->num_jump_points);
+
+  conf->jump_points[p].board_id = strtol(board_id, NULL, 10);
+  conf->jump_points[p].dest_x = strtol(board_x, NULL, 10);
+  conf->jump_points[p].dest_y = strtol(board_y, NULL, 10);
+  strncpy(conf->jump_points[p].name, value, BOARD_NAME_SIZE);
+  conf->jump_points[p].name[BOARD_NAME_SIZE] = '\0';
+}
+
+/******************/
+/* BOARD DEFAULTS */
+/******************/
+
+static void config_board_width(struct editor_config_info *conf,
+ char *name, char *value, char *extended_data)
+{
+  conf->board_width = CLAMP(strtol(value, NULL, 10), 1, 32767);
+  if(conf->viewport_w > conf->board_width)
+    conf->viewport_w = conf->board_width;
+}
+
+static void config_board_height(struct editor_config_info *conf,
+ char *name, char *value, char *extended_data)
+{
+  conf->board_height = CLAMP(strtol(value, NULL, 10), 1, 32767);
+  if(conf->viewport_h > conf->board_height)
+    conf->viewport_h = conf->board_height;
+}
+
+static void config_board_viewport_w(struct editor_config_info *conf,
+ char *name, char *value, char *extended_data)
+{
+  conf->viewport_w = CLAMP(strtol(value, NULL, 10), 1, MIN(conf->board_width, 80));
+  if(conf->viewport_x + conf->viewport_w > 80)
+    conf->viewport_x = 80 - conf->viewport_w;
+}
+
+static void config_board_viewport_h(struct editor_config_info *conf,
+ char *name, char *value, char *extended_data)
+{
+  conf->viewport_h = CLAMP(strtol(value, NULL, 10), 1, MIN(conf->board_height, 25));
+  if(conf->viewport_y + conf->viewport_h > 25)
+    conf->viewport_y = 25 - conf->viewport_h;
+}
+
+static void config_board_viewport_x(struct editor_config_info *conf,
+ char *name, char *value, char *extended_data)
+{
+  conf->viewport_x = CLAMP(strtol(value, NULL, 10), 0, 80 - conf->viewport_w);
+}
+
+static void config_board_viewport_y(struct editor_config_info *conf,
+ char *name, char *value, char *extended_data)
+{
+  conf->viewport_y = CLAMP(strtol(value, NULL, 10), 0, (25 - conf->viewport_h));
+}
+
+static void config_board_can_shoot(struct editor_config_info *conf,
+ char *name, char *value, char *extended_data)
+{
+  conf->can_shoot = CLAMP(strtol(value, NULL, 10), 0, 1);
+}
+
+static void config_board_can_bomb(struct editor_config_info *conf,
+ char *name, char *value, char *extended_data)
+{
+  conf->can_bomb = CLAMP(strtol(value, NULL, 10), 0, 1);
+}
+
+static void config_board_fire_spaces(struct editor_config_info *conf,
+ char *name, char *value, char *extended_data)
+{
+  conf->fire_burns_spaces = CLAMP(strtol(value, NULL, 10), 0, 1);
+}
+
+static void config_board_fire_fakes(struct editor_config_info *conf,
+ char *name, char *value, char *extended_data)
+{
+  conf->fire_burns_fakes = CLAMP(strtol(value, NULL, 10), 0, 1);
+}
+
+static void config_board_fire_trees(struct editor_config_info *conf,
+ char *name, char *value, char *extended_data)
+{
+  conf->fire_burns_trees = CLAMP(strtol(value, NULL, 10), 0, 1);
+}
+
+static void config_board_fire_brown(struct editor_config_info *conf,
+ char *name, char *value, char *extended_data)
+{
+  conf->fire_burns_brown = CLAMP(strtol(value, NULL, 10), 0, 1);
+}
+
+static void config_board_fire_forever(struct editor_config_info *conf,
+ char *name, char *value, char *extended_data)
+{
+  conf->fire_burns_forever = CLAMP(strtol(value, NULL, 10), 0, 1);
+}
+
+static void config_board_forest(struct editor_config_info *conf,
+ char *name, char *value, char *extended_data)
+{
+  conf->forest_to_floor = CLAMP(strtol(value, NULL, 10), 0, 1);
+}
+
+static void config_board_collect_bombs(struct editor_config_info *conf,
+ char *name, char *value, char *extended_data)
+{
+  conf->collect_bombs = CLAMP(strtol(value, NULL, 10), 0, 1);
+}
+
+static void config_board_restart(struct editor_config_info *conf,
+ char *name, char *value, char *extended_data)
+{
+  conf->restart_if_hurt = CLAMP(strtol(value, NULL, 10), 0, 1);
+}
+
+static void config_board_locked_ns(struct editor_config_info *conf,
+ char *name, char *value, char *extended_data)
+{
+  conf->player_locked_ns = CLAMP(strtol(value, NULL, 10), 0, 1);
+}
+
+static void config_board_locked_ew(struct editor_config_info *conf,
+ char *name, char *value, char *extended_data)
+{
+  conf->player_locked_ew = CLAMP(strtol(value, NULL, 10), 0, 1);
+}
+
+static void config_board_locked_att(struct editor_config_info *conf,
+ char *name, char *value, char *extended_data)
+{
+  conf->player_locked_att = CLAMP(strtol(value, NULL, 10), 0, 1);
+}
+
+static void config_board_time_limit(struct editor_config_info *conf,
+ char *name, char *value, char *extended_data)
+{
+  conf->time_limit = CLAMP(strtol(value, NULL, 10), 0, 32767);
+}
+
+static void config_board_explosions(struct editor_config_info *conf,
+ char *name, char *value, char *extended_data)
+{
+  if(!strcasecmp(value, "space"))
+    conf->explosions_leave = EXPL_LEAVE_SPACE;
+
+  if(!strcasecmp(value, "ash"))
+    conf->explosions_leave = EXPL_LEAVE_ASH;
+
+  if(!strcasecmp(value, "fire"))
+    conf->explosions_leave = EXPL_LEAVE_FIRE;
+}
+
+static void config_board_saving(struct editor_config_info *conf,
+ char *name, char *value, char *extended_data)
+{
+  if(!strcasecmp(value, "disabled"))
+    conf->saving_enabled = CANT_SAVE;
+
+  if(!strcasecmp(value, "enabled"))
+    conf->saving_enabled = CAN_SAVE;
+
+  if(!strcasecmp(value, "sensoronly"))
+    conf->saving_enabled = CAN_SAVE_ON_SENSOR;
+}
+
+static void config_board_overlay(struct editor_config_info *conf,
+ char *name, char *value, char *extended_data)
+{
+  if(!strcasecmp(value, "disabled"))
+    conf->overlay_enabled = OVERLAY_OFF;
+
+  if(!strcasecmp(value, "enabled"))
+    conf->overlay_enabled = OVERLAY_ON;
+
+  if(!strcasecmp(value, "static"))
+    conf->overlay_enabled = OVERLAY_STATIC;
+
+  if(!strcasecmp(value, "transparent"))
+    conf->overlay_enabled = OVERLAY_TRANSPARENT;
+}
+
+/**********************/
+/* END BOARD DEFAULTS */
+/**********************/
+
 /* FAT NOTE: This is searched as a binary tree, the nodes must be
  *           sorted alphabetically, or they risk being ignored.
  */
@@ -223,6 +454,29 @@ static const struct editor_config_entry editor_config_options[] =
   { "backup_ext", backup_ext },
   { "backup_interval", backup_interval },
   { "backup_name", backup_name },
+  { "board_default_can_bomb", config_board_can_bomb },
+  { "board_default_can_shoot", config_board_can_shoot },
+  { "board_default_collect_bombs", config_board_collect_bombs },
+  { "board_default_explosions_leave", config_board_explosions },
+  { "board_default_fire_burns_brown", config_board_fire_brown },
+  { "board_default_fire_burns_fakes", config_board_fire_fakes },
+  { "board_default_fire_burns_forever", config_board_fire_forever },
+  { "board_default_fire_burns_spaces", config_board_fire_spaces },
+  { "board_default_fire_burns_trees", config_board_fire_trees },
+  { "board_default_forest_to_floor", config_board_forest },
+  { "board_default_height", config_board_height },
+  { "board_default_overlay", config_board_overlay },
+  { "board_default_player_locked_att", config_board_locked_att },
+  { "board_default_player_locked_ew", config_board_locked_ew },
+  { "board_default_player_locked_ns", config_board_locked_ns },
+  { "board_default_restart_if_hurt", config_board_restart },
+  { "board_default_saving", config_board_saving },
+  { "board_default_time_limit", config_board_time_limit },
+  { "board_default_viewport_h", config_board_viewport_h },
+  { "board_default_viewport_w", config_board_viewport_w },
+  { "board_default_viewport_x", config_board_viewport_x },
+  { "board_default_viewport_y", config_board_viewport_y },
+  { "board_default_width", config_board_width },
   { "board_editor_hide_help", bedit_hhelp },
   { "ccode_colors", config_ccode_colors },
   { "ccode_commands", config_ccode_commands },
@@ -240,8 +494,11 @@ static const struct editor_config_entry editor_config_options[] =
   { "default_invalid_status", config_default_invald },
   { "editor_enter_splits", config_editor_enter_splits },
   { "editor_space_toggles", config_editor_space_toggles },
+  { "editor_tab_focuses_view", config_editor_tab_focus },
   { "macro_*", config_macro },
   { "robot_editor_hide_help", redit_hhelp },
+  { "saved_position", config_saved_positions },
+  { "undo_history_size", config_undo_history_size },
 };
 
 static const int num_editor_config_options =
@@ -276,6 +533,35 @@ static const struct editor_config_info default_editor_options =
   // Board editor options
   0,                            // editor_space_toggles
   0,                            // board_editor_hide_help
+  1,                            // editor_tab_focuses_view
+
+  // Defaults for new boards
+  0,                            // viewport_x
+  0,                            // viewport_y
+  80,                           // viewport_w
+  25,                           // viewport_h
+  100,                          // board_width
+  100,                          // board_height
+  1,                            // can_shoot
+  1,                            // can_bomb
+  0,                            // fire_burns_spaces
+  1,                            // fire_burns_fakes
+  1,                            // fire_burns_trees
+  0,                            // fire_burns_brown
+  0,                            // fire_burns_forever
+  0,                            // forest_to_floor
+  0,                            // collect_bombs
+  0,                            // restart_if_hurt
+  0,                            // player_locked_ns
+  0,                            // player_locked_ew
+  0,                            // player_locked_att
+  0,                            // time_limit
+  1,                            // explosions_leave (default = ash)
+  0,                            // saving_enabled (default = enabled)
+  1,                            // overlay_enabled (default = enabled)
+
+  // Char editor options
+  10,                           // Undo history size
 
   // Robot editor options
   true,
@@ -295,6 +581,11 @@ static const struct editor_config_info default_editor_options =
   0,                            // num_extended_macros
   0,
   NULL,
+
+  // Jump points
+  0,
+  NULL,
+
 };
 
 static void editor_config_change_option(void *conf, char *name, char *value,
@@ -322,4 +613,205 @@ void set_editor_config_from_command_line(struct editor_config_info *conf,
  int *argc, char *argv[])
 {
   __set_config_from_command_line(editor_config_change_option, conf, argc, argv);
+}
+
+void save_local_editor_config(struct editor_config_info *conf,
+ const char *mzx_file_path)
+{
+  int mzx_file_len = strlen(mzx_file_path) - 4;
+  char config_file_name[MAX_PATH];
+
+  char buf[60] = { 0 };
+  char buf2[20] = { 0 };
+
+  const char *comment =
+    "\n############################################################";
+  const char *comment_a =
+    "\n#####  Editor generated configuration - do not modify  #####";
+  const char *comment_b =
+    "\n#####        End editor generated configuration        #####";
+  FILE *fp;
+
+  if(mzx_file_len <= 0)
+    return;
+
+  // Get our filename
+  strncpy(config_file_name, mzx_file_path, mzx_file_len);
+  strncpy(config_file_name + mzx_file_len, ".editor.cnf", 12);
+
+  // Does it exist?
+  fp = fopen_unsafe(config_file_name, "rb");
+  if(fp)
+  {
+    char *a, *b;
+    char *config_file = NULL;
+    char *config_file_b = NULL;
+    int config_file_size = 0;
+    int config_file_size_b = 0;
+
+    config_file_size = ftell_and_rewind(fp);
+    config_file = cmalloc(config_file_size + 1);
+    config_file[config_file_size] = 0;
+
+    fread(config_file, 1, config_file_size, fp);
+    fclose(fp);
+
+    a = strstr(config_file, comment_a);
+    b = strstr(config_file, comment_b);
+
+    // Start of special section
+    if(a)
+    {
+      a[0] = '\0';
+      a = strrchr(config_file, '\n');
+      if(a)
+      {
+        if(a > config_file && a[-1] == '\r')
+          a[-1] = '\0';
+        else
+          a[0] = '\0';
+
+        config_file_size = strlen(config_file);
+      }
+      else
+      {
+        config_file[0] = '\0';
+        config_file_size = 0;
+      }
+
+      // End of special section
+      // Skip matched line and comment line afterward
+      if(b && (b = strchr(b + 1, '\n')) && (b = strchr(b + 1, '\n')))
+      {
+        config_file_b = b + 1;
+        config_file_size_b = strlen(config_file_b);
+      }
+    }
+
+    fp = fopen_unsafe(config_file_name, "wb");
+
+    if(config_file_size)
+      fwrite(config_file, 1, config_file_size, fp);
+    if(config_file_size_b)
+      fwrite(config_file_b, 1, config_file_size_b, fp);
+
+    fclose(fp);
+    free(config_file);
+  }
+
+  fp = fopen_unsafe(config_file_name, "a");
+
+  fwrite(comment, 1, strlen(comment), fp);
+  fwrite(comment_a, 1, strlen(comment_a), fp);
+  fwrite(comment, 1, strlen(comment), fp);
+  fwrite("\n\n", 1, 2, fp);
+
+  sprintf(buf, "board_default_width = %i\n", conf->board_width);
+  fwrite(buf, 1, strlen(buf), fp);
+  sprintf(buf, "board_default_height = %i\n", conf->board_height);
+  fwrite(buf, 1, strlen(buf), fp);
+  sprintf(buf, "board_default_viewport_w = %i\n", conf->viewport_w);
+  fwrite(buf, 1, strlen(buf), fp);
+  sprintf(buf, "board_default_viewport_h = %i\n", conf->viewport_h);
+  fwrite(buf, 1, strlen(buf), fp);
+  sprintf(buf, "board_default_viewport_x = %i\n", conf->viewport_x);
+  fwrite(buf, 1, strlen(buf), fp);
+  sprintf(buf, "board_default_viewport_y = %i\n", conf->viewport_y);
+  fwrite(buf, 1, strlen(buf), fp);
+  sprintf(buf, "board_default_can_shoot = %i\n", conf->can_shoot);
+  fwrite(buf, 1, strlen(buf), fp);
+  sprintf(buf, "board_default_can_bomb = %i\n", conf->can_bomb);
+  fwrite(buf, 1, strlen(buf), fp);
+  sprintf(buf, "board_default_fire_burns_spaces = %i\n", conf->fire_burns_spaces);
+  fwrite(buf, 1, strlen(buf), fp);
+  sprintf(buf, "board_default_fire_burns_fakes = %i\n", conf->fire_burns_fakes);
+  fwrite(buf, 1, strlen(buf), fp);
+  sprintf(buf, "board_default_fire_burns_trees = %i\n", conf->fire_burns_trees);
+  fwrite(buf, 1, strlen(buf), fp);
+  sprintf(buf, "board_default_fire_burns_brown = %i\n", conf->fire_burns_brown);
+  fwrite(buf, 1, strlen(buf), fp);
+  sprintf(buf, "board_default_fire_burns_forever = %i\n", conf->fire_burns_forever);
+  fwrite(buf, 1, strlen(buf), fp);
+  sprintf(buf, "board_default_forest_to_floor = %i\n", conf->forest_to_floor);
+  fwrite(buf, 1, strlen(buf), fp);
+  sprintf(buf, "board_default_collect_bombs = %i\n", conf->collect_bombs);
+  fwrite(buf, 1, strlen(buf), fp);
+  sprintf(buf, "board_default_restart_if_hurt = %i\n", conf->restart_if_hurt);
+  fwrite(buf, 1, strlen(buf), fp);
+  sprintf(buf, "board_default_player_locked_ns = %i\n", conf->player_locked_ns);
+  fwrite(buf, 1, strlen(buf), fp);
+  sprintf(buf, "board_default_player_locked_ew = %i\n", conf->player_locked_ew);
+  fwrite(buf, 1, strlen(buf), fp);
+  sprintf(buf, "board_default_player_locked_att = %i\n", conf->player_locked_att);
+  fwrite(buf, 1, strlen(buf), fp);
+  sprintf(buf, "board_default_time_limit = %i\n", conf->time_limit);
+  fwrite(buf, 1, strlen(buf), fp);
+
+  switch(conf->explosions_leave)
+  {
+    case EXPL_LEAVE_SPACE:
+      strcpy(buf2, "space");
+      break;
+    case EXPL_LEAVE_ASH:
+      strcpy(buf2, "ash");
+      break;
+    case EXPL_LEAVE_FIRE:
+      strcpy(buf2, "fire");
+      break;
+  }
+  sprintf(buf, "board_default_explosions_leave = %s\n", buf2);
+  fwrite(buf, 1, strlen(buf), fp);
+
+  switch(conf->saving_enabled)
+  {
+    case CANT_SAVE:
+      strcpy(buf2, "disabled");
+      break;
+    case CAN_SAVE:
+      strcpy(buf2, "enabled");
+      break;
+    case CAN_SAVE_ON_SENSOR:
+      strcpy(buf2, "sensoronly");
+      break;
+  }
+  sprintf(buf, "board_default_saving = %s\n", buf2);
+  fwrite(buf, 1, strlen(buf), fp);
+
+  switch(conf->overlay_enabled)
+  {
+    case OVERLAY_OFF:
+      strcpy(buf2, "disabled");
+      break;
+    case OVERLAY_ON:
+      strcpy(buf2, "enabled");
+      break;
+    case OVERLAY_STATIC:
+      strcpy(buf2, "static");
+      break;
+    case OVERLAY_TRANSPARENT:
+      strcpy(buf2, "transparent");
+      break;
+  }
+  sprintf(buf, "board_default_overlay = %s\n", buf2);
+  fwrite(buf, 1, strlen(buf), fp);
+
+  if(conf->num_jump_points)
+  {
+    int i;
+
+    fwrite("\n", 1, 1, fp);
+    for(i = 0; i < conf->num_jump_points; i++)
+    {
+      struct jump_point *j = &(conf->jump_points[i]);
+      sprintf(buf, "saved_position = %s,%i,%i,%i\n", j->name, j->board_id, j->dest_x, j->dest_y);
+    }
+  }
+
+  fwrite(comment, 1, strlen(comment), fp);
+  fwrite(comment_b, 1, strlen(comment_b), fp);
+  fwrite(comment, 1, strlen(comment), fp);
+  fwrite("\n", 1, 1, fp);
+
+  fclose(fp);
+
 }

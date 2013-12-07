@@ -45,21 +45,30 @@ int take_key(struct world *mzx_world, int color);
 int give_key(struct world *mzx_world, int color);
 
 extern bool pal_update;
+extern bool editing;
 
 #ifdef CONFIG_EDITOR
 CORE_LIBSPEC void play_game(struct world *mzx_world);
 CORE_LIBSPEC void draw_viewport(struct world *src_board);
+CORE_LIBSPEC void set_caption(struct world *mzx_world, struct board *board,
+ struct robot *robot, int editor);
 
 CORE_LIBSPEC extern bool debug_mode;
 CORE_LIBSPEC extern const char *const world_ext[2];
-CORE_LIBSPEC extern void (*edit_world)(struct world *mzx_world);
+CORE_LIBSPEC extern void (*edit_world)(struct world *mzx_world,
+ int reload_curr_file);
 CORE_LIBSPEC extern void (*debug_counters)(struct world *mzx_world);
 CORE_LIBSPEC extern void (*draw_debug_box)(struct world *mzx_world,
  int x, int y, int d_x, int d_y);
+
+CORE_LIBSPEC extern int (*debug_robot)(struct world *mzx_world,
+ struct robot *cur_robot, int id);
+CORE_LIBSPEC extern void (*edit_breakpoints)(struct world *mzx_world);
 #endif // CONFIG_EDITOR
 
 #ifdef CONFIG_UPDATER
-CORE_LIBSPEC extern void (*check_for_updates)(struct config_info *conf);
+CORE_LIBSPEC extern void (*check_for_updates)(struct world *mzx_world,
+ struct config_info *conf);
 #endif
 
 __M_END_DECLS

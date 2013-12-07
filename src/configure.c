@@ -31,6 +31,7 @@
 #include "rasm.h"
 #include "fsafeopen.h"
 #include "util.h"
+#include "sys/stat.h"
 
 #if defined(CONFIG_NDS)
 #define VIDEO_OUTPUT_DEFAULT "nds"
@@ -77,6 +78,20 @@
 #define FULLSCREEN_DEFAULT 0
 #endif
 
+#ifdef CONFIG_UPDATER
+#ifndef MAX_UPDATE_HOSTS
+#define MAX_UPDATE_HOSTS 16
+#endif
+
+#ifndef UPDATE_HOST_COUNT
+#define UPDATE_HOST_COUNT 2
+#endif
+
+#ifndef UPDATE_HOSTS
+#define UPDATE_HOSTS { "updates.digitalmzx.net", "updates.mzx.devzero.co.uk" }
+#endif
+#endif /* CONFIG_UPDATER */
+
 struct config_entry
 {
   char option_name[OPTION_NAME_LEN];
@@ -108,11 +123,33 @@ static void config_set_socks_port(struct config_info *conf, char *name,
 
 #ifdef CONFIG_UPDATER
 
+static int host_configured = 0;
+
 static void config_update_host(struct config_info *conf, char *name,
  char *value, char *extended_data)
 {
-  strncpy(conf->update_host, value, 256);
-  conf->update_host[256 - 1] = 0;
+  if(!host_configured || !conf->update_host_count)
+  {
+    int i;
+
+    // Free the defaults, we don't want them anymore
+    for(i = 0; i < conf->update_host_count; i++)
+      free(conf->update_hosts[i]);
+
+    conf->update_host_count = 0;
+    host_configured = 1;
+  }
+
+  if(conf->update_host_count < MAX_UPDATE_HOSTS)
+  {
+    conf->update_hosts = crealloc(conf->update_hosts,
+     sizeof(char *) * (conf->update_host_count + 1));
+
+    conf->update_hosts[conf->update_host_count] = cmalloc(128);
+    strncpy(conf->update_hosts[conf->update_host_count], value, 128);
+    conf->update_hosts[conf->update_host_count][127] = 0;
+    conf->update_host_count++;
+  }
 }
 
 static void config_update_branch_pin(struct config_info *conf, char *name,
@@ -176,7 +213,7 @@ static void config_set_mzx_speed(struct config_info *conf, char *name,
  char *value, char *extended_data)
 {
   unsigned long new_speed = strtoul(value, NULL, 10);
-  conf->mzx_speed = CLAMP(new_speed, 1, 9);
+  conf->mzx_speed = CLAMP(new_speed, 1, 16);
 }
 
 static void config_set_pc_speaker(struct config_info *conf, char *name,
@@ -201,7 +238,19 @@ static void config_save_file(struct config_info *conf, char *name,
 static void config_startup_file(struct config_info *conf, char *name,
  char *value, char *extended_data)
 {
-  strncpy(conf->startup_file, value, 256);
+  // Split file from path; discard the path and save the file.
+  split_path_filename(value, NULL, 0, conf->startup_file, 256);
+}
+
+static void config_startup_path(struct config_info *conf, char *name,
+ char *value, char *extended_data)
+{
+  struct stat stat_info;
+  if(stat(value, &stat_info) ||
+   !S_ISDIR(stat_info.st_mode))
+    return;
+
+  strncpy(conf->startup_path, value, 256);
 }
 
 static void config_system_mouse(struct config_info *conf, char *name,
@@ -436,6 +485,7 @@ static const struct config_entry config_options[] =
 #endif
   { "startup_editor", config_startup_editor },
   { "startup_file", config_startup_file },
+  { "startup_path", config_startup_path },
   { "system_mouse", config_system_mouse },
 #ifdef CONFIG_UPDATER
   { "update_branch_pin", config_update_branch_pin },
@@ -501,6 +551,7 @@ static const struct config_info default_options =
   1,                            // pc_speaker_on
 
   // Game options
+  "",                           // startup_path
   "caverns.mzx",                // startup_file
   "saved.sav",                  // default_save_name
   4,                            // mzx_speed
@@ -517,11 +568,11 @@ static const struct config_info default_options =
   1080,                         // socks_port
 #endif
 #if defined(CONFIG_UPDATER)
+  UPDATE_HOST_COUNT,            // update_host_count
+  NULL,                         // update_hosts
 #if defined(CONFIG_DEBYTECODE)
-  "updates.mzx.devzero.co.uk",  // update_host
   "Debytecode",                 // update_branch_pin
 #else /* !CONFIG_DEBYTECODE */
-  "updates.digitalmzx.net",     // update_host
   "Stable",                     // update_branch_pin
 #endif /* !CONFIG_DEBYTECODE */
 #endif /* CONFIG_UPDATER */
@@ -548,7 +599,7 @@ __editor_maybe_static void __set_config_from_file(
   char *equals_position, *value;
   FILE *conf_file;
 
-  conf_file = fopen(conf_file_name, "rb");
+  conf_file = fopen_unsafe(conf_file_name, "rb");
   if(!conf_file)
     return;
 
@@ -697,10 +748,46 @@ void set_config_from_file(struct config_info *conf, const char *conf_file_name)
 void default_config(struct config_info *conf)
 {
   memcpy(conf, &default_options, sizeof(struct config_info));
+
+#if defined(CONFIG_UPDATER)
+  // No update hosts?  Add defaults!
+  if(!conf->update_hosts)
+  {
+    char **update_hosts = cmalloc(sizeof(char *) * UPDATE_HOST_COUNT);
+    const char *def_hosts[] = UPDATE_HOSTS;
+    int i;
+
+    for(i = 0; i < UPDATE_HOST_COUNT; i++)
+    {
+      update_hosts[i] = cmalloc(strlen(def_hosts[i]) + 1);
+      strcpy(update_hosts[i], def_hosts[i]);
+    }
+
+    conf->update_host_count = UPDATE_HOST_COUNT;
+    conf->update_hosts = update_hosts;
+  }
+#endif //CONFIG_UPDATER
 }
 
 void set_config_from_command_line(struct config_info *conf,
  int *argc, char *argv[])
 {
   __set_config_from_command_line(config_change_option, conf, argc, argv);
+}
+
+void free_config(struct config_info *conf)
+{
+#ifdef CONFIG_UPDATER
+  // Auto-Updater hosts
+  if(conf->update_hosts)
+  {
+    int i;
+
+    for(i = 0; i < conf->update_host_count; i++)
+      free(conf->update_hosts[i]);
+
+    free(conf->update_hosts);
+    conf->update_hosts = NULL;
+  }
+#endif
 }

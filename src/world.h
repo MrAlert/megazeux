@@ -50,7 +50,8 @@ __M_BEGIN_DECLS
  *  MZ2 - Ver 2.x MegaZeux             (mzx_world->version == 0x0205)
  *  MZA - Ver 2.51S1 Megazeux          (mzx_world->version == 0x0208)
  *  M\x02\x09 - 2.5.1spider2+
- *  M\x02\x3E - MZX 2.62.x
+ *  M\x02\x32 - MZX 2.62
+ *  M\x02\x3E - MZX 2.62b
  *  M\x02\x41 - MZX 2.65
  *  M\x02\x44 - MZX 2.68
  *  M\x02\x45 - MZX 2.69
@@ -61,13 +62,15 @@ __M_BEGIN_DECLS
  *  M\x02\x51 - MZX 2.81
  *  M\x02\x52 - MZX 2.82
  *  M\x02\x53 - MZX 2.83
+ *  M\x02\x54 - MZX 2.84
  *
  * Save files:
  *
  *  MZSV2 - Ver 2.x MegaZeux           (mzx_world->version == 0x0205)
  *  MZXSA - Ver 2.51S1 MegaZeux        (mzx_world->version == 0x0208)
  *  MZS\x02\x09 - 2.5.1spider2+
- *  MZS\x02\x3E - MZX 2.62.x
+ *  MZS\x02\x32 - MZX 2.62
+ *  MZS\x02\x3E - MZX 2.62b
  *  MZS\x02\x41 - MZX 2.65
  *  MZS\x02\x44 - MZX 2.68
  *  MZS\x02\x45 - MZX 2.69
@@ -78,6 +81,7 @@ __M_BEGIN_DECLS
  *  MZS\x02\x51 - MZX 2.81
  *  MZS\x02\x52 - MZX 2.82
  *  MZS\x02\x53 - MZX 2.83
+ *  MZS\x02\x54 - MZX 2.84
  *
  * Board files follow a similar pattern to world files. Versions prior to
  * 2.51S1 are "MB2". For versions greater than 2.51S1, they match the
@@ -93,14 +97,14 @@ __M_BEGIN_DECLS
  * such as altering semantics or actually changing the binary format, this
  * value MUST be bumped.
  */
-#define WORLD_VERSION      0x0253
+#define WORLD_VERSION      0x0254
 
 /* See the downver.c tool for more information. Please, if you bump the
  * WORLD_VERSION, always make sure this is updated with its previous
  * value. Therefore, users can always downgrade their work to an
  * older version (if it at all makes sense to do so).
  */
-#define WORLD_VERSION_PREV 0x0252
+#define WORLD_VERSION_PREV 0x0253
 
 // FIXME: hack
 #ifdef CONFIG_DEBYTECODE
@@ -108,6 +112,10 @@ __M_BEGIN_DECLS
 #define WORLD_VERSION      0x025A
 #undef  WORLD_VERSION_PREV
 #endif
+
+// These three are needed by validation.c until I figure out a better way
+CORE_LIBSPEC int world_magic(const char magic_string[3]);
+CORE_LIBSPEC int save_magic(const char magic_string[5]);
 
 CORE_LIBSPEC int save_world(struct world *mzx_world, const char *file,
  int savegame);
@@ -133,8 +141,12 @@ void fputd(int src, FILE *fp);
 CORE_LIBSPEC FILE *try_load_world(const char *file, bool savegame,
  int *version, char *name);
 CORE_LIBSPEC void default_global_data(struct world *mzx_world);
-CORE_LIBSPEC void optimize_null_boards(struct world *mzx_world);
 CORE_LIBSPEC void set_update_done(struct world *mzx_world);
+
+CORE_LIBSPEC void refactor_board_list(struct world *mzx_world,
+ struct board **new_board_list, int new_list_size,
+ int *board_id_translation_list);
+CORE_LIBSPEC void optimize_null_boards(struct world *mzx_world);
 #endif // CONFIG_EDITOR
 
 __M_END_DECLS

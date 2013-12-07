@@ -32,7 +32,7 @@ int png_write_screen(Uint8 *pixels, struct rgb_color *pal, int count,
   int i, type, ret = false;
   FILE *f;
 
-  f = fopen(name, "wb");
+  f = fopen_unsafe(name, "wb");
   if(!f)
     goto exit_out;
 
@@ -108,7 +108,7 @@ void *png_read_file(const char *name, png_uint_32 *_w, png_uint_32 *_h,
   int type, bpp;
   FILE *f;
 
-  f = fopen(name, "rb");
+  f = fopen_unsafe(name, "rb");
   if(!f)
     goto exit_out;
 
@@ -126,7 +126,7 @@ void *png_read_file(const char *name, png_uint_32 *_w, png_uint_32 *_h,
   if(!info_ptr)
     goto exit_free_close;
 
-  if(setjmp(png_ptr->jmpbuf))
+  if(setjmp(png_jmpbuf(png_ptr)))
     goto exit_free_close;
 
   png_init_io(png_ptr, f);

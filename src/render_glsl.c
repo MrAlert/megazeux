@@ -97,33 +97,33 @@ glsl;
 
 static const struct dso_syms_map glsl_syms_map[] =
 {
-  { "glAttachShader",             (void **)&glsl.glAttachShader },
-  { "glBindAttribLocation",       (void **)&glsl.glBindAttribLocation },
-  { "glBindTexture",              (void **)&glsl.glBindTexture },
-  { "glBlendFunc",                (void **)&glsl.glBlendFunc },
-  { "glClear",                    (void **)&glsl.glClear },
-  { "glCompileShader",            (void **)&glsl.glCompileShader },
-  { "glCopyTexImage2D",           (void **)&glsl.glCopyTexImage2D },
-  { "glCreateProgram",            (void **)&glsl.glCreateProgram },
-  { "glCreateShader",             (void **)&glsl.glCreateShader },
-  { "glDisable",                  (void **)&glsl.glDisable },
-  { "glDisableVertexAttribArray", (void **)&glsl.glDisableVertexAttribArray },
-  { "glDrawArrays",               (void **)&glsl.glDrawArrays },
-  { "glEnable",                   (void **)&glsl.glEnable },
-  { "glEnableVertexAttribArray",  (void **)&glsl.glEnableVertexAttribArray },
-  { "glGenTextures",              (void **)&glsl.glGenTextures },
-  { "glGetError",                 (void **)&glsl.glGetError },
-  { "glGetProgramInfoLog",        (void **)&glsl.glGetProgramInfoLog },
-  { "glGetShaderInfoLog",         (void **)&glsl.glGetShaderInfoLog },
-  { "glGetString",                (void **)&glsl.glGetString },
-  { "glLinkProgram",              (void **)&glsl.glLinkProgram },
-  { "glShaderSource",             (void **)&glsl.glShaderSource },
-  { "glTexImage2D",               (void **)&glsl.glTexImage2D },
-  { "glTexParameterf",            (void **)&glsl.glTexParameterf },
-  { "glTexSubImage2D",            (void **)&glsl.glTexSubImage2D },
-  { "glUseProgram",               (void **)&glsl.glUseProgram },
-  { "glVertexAttribPointer",      (void **)&glsl.glVertexAttribPointer },
-  { "glViewport",                 (void **)&glsl.glViewport },
+  { "glAttachShader",             (fn_ptr *)&glsl.glAttachShader },
+  { "glBindAttribLocation",       (fn_ptr *)&glsl.glBindAttribLocation },
+  { "glBindTexture",              (fn_ptr *)&glsl.glBindTexture },
+  { "glBlendFunc",                (fn_ptr *)&glsl.glBlendFunc },
+  { "glClear",                    (fn_ptr *)&glsl.glClear },
+  { "glCompileShader",            (fn_ptr *)&glsl.glCompileShader },
+  { "glCopyTexImage2D",           (fn_ptr *)&glsl.glCopyTexImage2D },
+  { "glCreateProgram",            (fn_ptr *)&glsl.glCreateProgram },
+  { "glCreateShader",             (fn_ptr *)&glsl.glCreateShader },
+  { "glDisable",                  (fn_ptr *)&glsl.glDisable },
+  { "glDisableVertexAttribArray", (fn_ptr *)&glsl.glDisableVertexAttribArray },
+  { "glDrawArrays",               (fn_ptr *)&glsl.glDrawArrays },
+  { "glEnable",                   (fn_ptr *)&glsl.glEnable },
+  { "glEnableVertexAttribArray",  (fn_ptr *)&glsl.glEnableVertexAttribArray },
+  { "glGenTextures",              (fn_ptr *)&glsl.glGenTextures },
+  { "glGetError",                 (fn_ptr *)&glsl.glGetError },
+  { "glGetProgramInfoLog",        (fn_ptr *)&glsl.glGetProgramInfoLog },
+  { "glGetShaderInfoLog",         (fn_ptr *)&glsl.glGetShaderInfoLog },
+  { "glGetString",                (fn_ptr *)&glsl.glGetString },
+  { "glLinkProgram",              (fn_ptr *)&glsl.glLinkProgram },
+  { "glShaderSource",             (fn_ptr *)&glsl.glShaderSource },
+  { "glTexImage2D",               (fn_ptr *)&glsl.glTexImage2D },
+  { "glTexParameterf",            (fn_ptr *)&glsl.glTexParameterf },
+  { "glTexSubImage2D",            (fn_ptr *)&glsl.glTexSubImage2D },
+  { "glUseProgram",               (fn_ptr *)&glsl.glUseProgram },
+  { "glVertexAttribPointer",      (fn_ptr *)&glsl.glVertexAttribPointer },
+  { "glViewport",                 (fn_ptr *)&glsl.glViewport },
   { NULL, NULL}
 };
 
@@ -133,6 +133,9 @@ struct glsl_render_data
 {
 #ifdef CONFIG_EGL
   struct egl_render_data egl;
+#endif
+#ifdef CONFIG_SDL
+  struct sdl_render_data sdl;
 #endif
   Uint32 *pixels;
   Uint32 charset_texture[CHAR_H * CHARSET_SIZE * CHAR_W * 2];
@@ -186,7 +189,7 @@ static char *glsl_load_string(const char *filename)
   unsigned long size;
   FILE *f;
 
-  f = fopen(filename, "rb");
+  f = fopen_unsafe(filename, "rb");
   if(!f)
     goto err_out;
 
@@ -373,6 +376,7 @@ static bool glsl_init_video(struct graphics_data *graphics,
   if(!GL_LoadLibrary(GL_LIB_PROGRAMMABLE))
     goto err_free;
 
+  memset(render_data, 0, sizeof(struct glsl_render_data));
   graphics->render_data = render_data;
 
   graphics->gl_vsync = conf->gl_vsync;
@@ -707,11 +711,11 @@ static void glsl_render_cursor(struct graphics_data *graphics,
     (x * 8 + 8)*2.0f/640.0f-1.0f, (y * 14 + lines + offset)*-2.0f/350.0f+1.0f
   };
 
-  const GLubyte color_array[3 * 4] = {
-    pal_base[0], pal_base[1], pal_base[2],
-    pal_base[0], pal_base[1], pal_base[2],
-    pal_base[0], pal_base[1], pal_base[2],
-    pal_base[0], pal_base[1], pal_base[2],
+  const float color_array[4 * 4] = {
+    pal_base[0]/255.0f, pal_base[1]/255.0f, pal_base[2]/255.0f,
+    pal_base[0]/255.0f, pal_base[1]/255.0f, pal_base[2]/255.0f,
+    pal_base[0]/255.0f, pal_base[1]/255.0f, pal_base[2]/255.0f,
+    pal_base[0]/255.0f, pal_base[1]/255.0f, pal_base[2]/255.0f,
   };
 
   if(!blink)
@@ -729,7 +733,7 @@ static void glsl_render_cursor(struct graphics_data *graphics,
    vertex_array);
   gl_check_error();
 
-  glsl.glVertexAttribPointer(ATTRIB_COLOR, 3, GL_UNSIGNED_BYTE, GL_FALSE, 0,
+  glsl.glVertexAttribPointer(ATTRIB_COLOR, 3, GL_FLOAT, GL_FALSE, 0,
    color_array);
   gl_check_error();
 

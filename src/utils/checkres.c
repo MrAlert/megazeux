@@ -30,6 +30,7 @@
 #endif
 
 // From MZX itself
+#define SKIP_SDL
 #include "../fsafeopen.h"
 #include "../const.h"
 #include "../util.h"
@@ -169,7 +170,7 @@ static bool is_zip_file(const char *filename)
   int signature = 0;
   FILE *fp;
 
-  fp = fopen(filename, "rb");
+  fp = fopen_unsafe(filename, "rb");
   if(!fp)
     return false;
 
@@ -222,7 +223,7 @@ static enum status s_open(const char *filename, const char *mode,
     }
 
     (*s)->type = FILE_STREAM;
-    (*s)->stream.fp = fopen(filename, mode);
+    (*s)->stream.fp = fopen_unsafe(filename, mode);
     if(!(*s)->stream.fp)
     {
       ret = FOPEN_FAILED;

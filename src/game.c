@@ -48,6 +48,7 @@
 #include "game2.h"
 #include "sprite.h"
 #include "world.h"
+#include "board.h"
 #include "robot.h"
 #include "fsafeopen.h"
 #include "extmem.h"
@@ -58,6 +59,9 @@
 // Number of cycles to make player idle before repeating a
 // directional move
 #define REPEAT_WAIT 2
+
+#define MAX_CAPTION_SIZE 120
+#define CAPTION_SPACER "::"
 
 static const char main_menu_1[] =
  "Enter- Menu\n"
@@ -76,11 +80,12 @@ static const char main_menu_4[] =
  "F7/U - Updater";
 
 static const char main_menu_5[] =
- "F8/E - Editor";
+ "F8/N - New World\n"
+ "F9/E - Edit World";
 
 static const char main_menu_6[] =
- "F10  - Quickload\n"
- "";  // unused
+ "F10  - Quickload\n";
+// "";  // unused
 
 static const char game_menu_1[] =
  "F1    - Help\n";
@@ -103,17 +108,21 @@ static const char game_menu_4[] =
  "Space - Shoot (w/dir)\n"
  "Delete- Bomb";
 
-__updater_maybe_static void (*check_for_updates)(struct config_info *conf);
+__updater_maybe_static void (*check_for_updates)(struct world *mzx_world,
+ struct config_info *conf);
 
-__editor_maybe_static void (*edit_world)(struct world *mzx_world);
+__editor_maybe_static void (*edit_world)(struct world *mzx_world,
+ int reload_curr_file);
 __editor_maybe_static void (*debug_counters)(struct world *mzx_world);
 __editor_maybe_static void (*draw_debug_box)(struct world *mzx_world,
  int x, int y, int d_x, int d_y);
 
+__editor_maybe_static void (*edit_breakpoints)(struct world *mzx_world);
+
 static const char *const save_ext[] = { ".SAV", NULL };
 static int update_music;
 
-static bool editing = true;
+bool editing = true;
 
 //Bit 1- +1
 //Bit 2- -1
@@ -129,7 +138,7 @@ __editor_maybe_static const char *const world_ext[] = { ".MZX", NULL };
 
 __editor_maybe_static bool debug_mode;
 
-static unsigned int intro_mesg_timer;
+static unsigned int intro_mesg_timer = MESG_TIMEOUT;
 
 void set_intro_mesg_timer(unsigned int time)
 {
@@ -138,8 +147,11 @@ void set_intro_mesg_timer(unsigned int time)
 
 static void draw_intro_mesg(struct world *mzx_world)
 {
-  static const char mesg1[] = "F1: Help";
+  static const char mesg1[] = "F1: Help   ";
   static const char mesg2[] = "Enter: Menu   Ctrl-Alt-Enter: Fullscreen";
+
+  if(intro_mesg_timer == 0)
+    return;
 
   if(mzx_world->help_file)
   {
@@ -152,12 +164,99 @@ static void draw_intro_mesg(struct world *mzx_world)
   }
 }
 
+static void strip_caption_string(char *output, char *input) {
+  unsigned int i, j;
+  output[0] = '\0';
+
+  for (i = 0, j = 0; i < strlen(input); i++) {
+    if(input[i] < 32 || input[i] > 126)
+      continue;
+
+    if(input[i] == '~' || input[i] == '@')
+    {
+      i++;
+      if(input[i - 1] != input[i])
+        continue;
+    }
+
+    output[j] = input[i];
+
+    if (output[j] != ' ' || (j > 0 && output[j - 1] != ' '))
+      j++;
+  }
+
+  if(j > 0 && output[j - 1] == ' ')
+    j--;
+
+  output[j] = '\0';
+  return;
+}
+
+__editor_maybe_static
+void set_caption(struct world *mzx_world, struct board *board,
+ struct robot *robot, int editor)
+{
+  char *default_caption = get_default_caption();
+  char *caption = cmalloc(MAX_CAPTION_SIZE);
+  char *buffer = cmalloc(MAX_CAPTION_SIZE);
+  char *stripped_name = cmalloc(MAX_CAPTION_SIZE);
+  caption[0] = '\0';
+
+  if(robot)
+  {
+    strip_caption_string(stripped_name, robot->robot_name);
+    if(!strlen(stripped_name))
+      strcpy(stripped_name, "Untitled robot");
+
+    snprintf(buffer, MAX_CAPTION_SIZE, "%s %s (%i,%i) %s", caption,
+     stripped_name, robot->xpos, robot->ypos, CAPTION_SPACER);
+    strcpy(caption, buffer);
+  }
+
+  if(board)
+  {
+    strip_caption_string(stripped_name, board->board_name);
+    if(!strlen(stripped_name))
+      strcpy(stripped_name, "Untitled board");
+
+    snprintf(buffer, MAX_CAPTION_SIZE, "%s %s %s", caption,
+     stripped_name, CAPTION_SPACER);
+    strcpy(caption, buffer);
+  }
+
+  if(mzx_world)
+  {
+    strip_caption_string(stripped_name, mzx_world->name);
+    if(!strlen(stripped_name))
+      strcpy(stripped_name, "Untitled world");
+
+    snprintf(buffer, MAX_CAPTION_SIZE, "%s %s %s", caption,
+     stripped_name, CAPTION_SPACER);
+    strcpy(caption, buffer);
+  }
+
+  snprintf(buffer, MAX_CAPTION_SIZE, "%s %s", caption, default_caption);
+  strcpy(caption, buffer);
+
+  if(editor)
+  {
+    snprintf(buffer, MAX_CAPTION_SIZE, "%s %s", caption, "(editor)");
+    strcpy(caption, buffer);
+  }
+
+  set_window_caption(caption);
+
+  free(stripped_name);
+  free(caption);
+  free(buffer);
+}
+
 static void load_world_file(struct world *mzx_world, char *name)
 {
   struct board *src_board;
   int fade = 0;
 
-  // Load world curr_file
+  // Load world
   end_module();
   clear_sfx_queue();
   //Clear screen
@@ -166,7 +265,13 @@ static void load_world_file(struct world *mzx_world, char *name)
   default_palette();
   if(reload_world(mzx_world, name, &fade))
   {
-    send_robot_def(mzx_world, 0, 10);
+    // Load was successful, so set curr_file
+    if(curr_file != name)
+      strcpy(curr_file, name);
+
+    set_caption(mzx_world, NULL, NULL, 0);
+
+    send_robot_def(mzx_world, 0, LABEL_JUSTLOADED);
 
     src_board = mzx_world->current_board;
     load_board_module(src_board);
@@ -174,18 +279,23 @@ static void load_world_file(struct world *mzx_world, char *name)
     set_counter(mzx_world, "TIME", src_board->time_limit, 0);
     set_intro_mesg_timer(MESG_TIMEOUT);
   }
+  else
+  {
+    // Restart the music if we still have a world in memory.
+    if(mzx_world->current_board)
+      load_board_module(mzx_world->current_board);
+  }
 }
 
 static void load_world_selection(struct world *mzx_world)
 {
-  char world_name[512] = { 0 };
+  char world_name[MAX_PATH] = { 0 };
 
   m_show();
   if(!choose_file_ch(mzx_world, world_ext,
    world_name, "Load World", 1))
   {
-    strcpy(curr_file, world_name);
-    load_world_file(mzx_world, curr_file);
+    load_world_file(mzx_world, world_name);
   }
 }
 
@@ -366,7 +476,7 @@ static void set_3_mesg(struct world *mzx_world, const char *str1, int num,
 
 //----------------------------
 //
-//  Speed- 123456789
+//    Speed- [   NN][^][v]
 //
 //   ( ) Digitized music on
 //   ( ) Digitized music off
@@ -403,12 +513,12 @@ static void game_settings(struct world *mzx_world)
   };
   struct element *elements[9];
 
-  if(!mzx_world->lock_speed || editing)
+  if(!mzx_world->lock_speed)// || editing)
   {
     speed_option = 2;
     num_elements = 9;
     start_option = 8;
-    elements[8] = construct_number_box(5, 2, "Speed- ", 1, 9,
+    elements[8] = construct_number_box(5, 2, "Speed- ", 1, 16,
      0, &mzx_speed);
   }
 
@@ -520,7 +630,7 @@ static void give_potion(struct world *mzx_world, enum potion type)
     case POTION_INVINCO:
     {
       set_mesg(mzx_world, "* Invinco *");
-      send_robot_def(mzx_world, 0, 2);
+      send_robot_def(mzx_world, 0, LABEL_INVINCO);
       set_counter(mzx_world, "INVINCO", 113, 0);
       break;
     }
@@ -983,7 +1093,7 @@ static int update(struct world *mzx_world, int game, int *fadein)
   if(game && (!mzx_world->dead))
   {
     // Shoot
-    if(get_key_status(keycode_internal, IKEY_SPACE))
+    if(get_key_status(keycode_internal, IKEY_SPACE) && mzx_world->bi_shoot_status)
     {
       if((!reload) && (!src_board->player_attack_locked))
       {
@@ -1164,7 +1274,6 @@ static int update(struct world *mzx_world, int game, int *fadein)
     load_board_module(src_board);
     strcpy(mzx_world->real_mod_playing, src_board->mod_playing);
   }
-
   update_music = 0;
 
   if(!slowed)
@@ -1251,8 +1360,14 @@ static int update(struct world *mzx_world, int game, int *fadein)
     else
     {
       set_mesg(mzx_world, "Game over");
-      src_board->b_mesg_row = 24;
-      src_board->b_mesg_col = -1;
+      /* I can't imagine anything actually relied on this obtuse misbehavior
+       * but it's good to version lock anyhow.
+       */
+      if((mzx_world->version <= 0x0253) || mzx_world->bi_mesg_status)
+      {
+        src_board->b_mesg_row = 24;
+        src_board->b_mesg_col = -1;
+      }
       if(mzx_world->game_over_sfx)
         play_sfx(mzx_world, 24);
       mzx_world->dead = 1;
@@ -1317,6 +1432,11 @@ static int update(struct world *mzx_world, int game, int *fadein)
       }
     }
   }
+
+  // We need to do this before the rest of the graphics code to fix some
+  // teleport glitch(es)
+  if(pal_update)
+    update_palette();
 
   if(mzx_world->target_where != TARGET_TELEPORT)
   {
@@ -1451,8 +1571,7 @@ static int update(struct world *mzx_world, int game, int *fadein)
         *(lines[j] - 1) = '\n';
     }
 
-    else if(intro_mesg_timer > 0)
-      draw_intro_mesg(mzx_world);
+    draw_intro_mesg(mzx_world);
 
     // Add debug box
     if(draw_debug_box && debug_mode)
@@ -1461,8 +1580,7 @@ static int update(struct world *mzx_world, int game, int *fadein)
        mzx_world->player_y);
     }
 
-    if(pal_update)
-      update_palette();
+    // note-- pal_update was previously here
 
     update_screen();
   }
@@ -1494,8 +1612,10 @@ static int update(struct world *mzx_world, int game, int *fadein)
     // JUSTENTERED label will take priority if a robot defines it.
     // This differs from pressing P on the title screen, where the
     // order of precedence is swapped.
-    send_robot_def(mzx_world, 0, 10);
-    send_robot_def(mzx_world, 0, 11);
+    // If swapped==2, we came here from LOAD_GAME; don't JUSTENTERED
+    send_robot_def(mzx_world, 0, LABEL_JUSTLOADED);
+    if(mzx_world->swapped != 2)
+      send_robot_def(mzx_world, 0, LABEL_JUSTENTERED);
 
     return 1;
   }
@@ -1693,7 +1813,7 @@ static int update(struct world *mzx_world, int game, int *fadein)
       place_player_xy(mzx_world, target_x, target_y);
     }
 
-    send_robot_def(mzx_world, 0, 11);
+    send_robot_def(mzx_world, 0, LABEL_JUSTENTERED);
     mzx_world->player_restart_x = mzx_world->player_x;
     mzx_world->player_restart_y = mzx_world->player_y;
     // Now... Set player_last_dir for direction FACED
@@ -1776,15 +1896,10 @@ __editor_maybe_static void play_game(struct world *mzx_world)
     {
       int key_char = get_key(keycode_unicode);
 
-#ifdef CONFIG_EDITOR
-      if(edit_world)
-        editing = mzx_world->editing;
-#endif
-
       if(key_char)
       {
         keylbl[3] = key_char;
-        send_robot_all(mzx_world, keylbl);
+        send_robot_all_def(mzx_world, keylbl);
       }
 
       switch(key)
@@ -1829,7 +1944,7 @@ __editor_maybe_static void play_game(struct world *mzx_world)
              (src_board->board_width * mzx_world->player_y)] ==
              SENSOR)))
             {
-              char save_game[512];
+              char save_game[MAX_PATH];
 
               strcpy(save_game, curr_sav);
 
@@ -1841,9 +1956,10 @@ __editor_maybe_static void play_game(struct world *mzx_world)
                 // Save entire game
                 save_world(mzx_world, curr_sav, 1);
               }
+
+              update_event_status();
             }
           }
-          update_event_status();
           break;
         }
 
@@ -1853,7 +1969,7 @@ __editor_maybe_static void play_game(struct world *mzx_world)
            get_counter(mzx_world, "LOAD_MENU", 0))
           {
             // Restore
-            char save_file_name[64];
+            char save_file_name[MAX_PATH] = { 0 };
             m_show();
 
             if(!choose_file_ch(mzx_world, save_ext, save_file_name,
@@ -1862,10 +1978,7 @@ __editor_maybe_static void play_game(struct world *mzx_world)
               // Load game
               fadein = 0;
               if(!reload_savegame(mzx_world, save_file_name, &fadein))
-              {
-                vquick_fadeout();
-                return;
-              }
+                break;
 
               // Reset this
               src_board = mzx_world->current_board;
@@ -1877,7 +1990,7 @@ __editor_maybe_static void play_game(struct world *mzx_world)
               find_player(mzx_world);
 
               strcpy(curr_sav, save_file_name);
-              send_robot_def(mzx_world, 0, 10);
+              send_robot_def(mzx_world, 0, LABEL_JUSTLOADED);
               fadein ^= 1;
             }
 
@@ -2037,39 +2150,49 @@ __editor_maybe_static void play_game(struct world *mzx_world)
         // Quick load
         case IKEY_F10:
         {
-          struct stat file_info;
-
-          if(!stat(curr_sav, &file_info))
+          if(mzx_world->version < 0x0252 ||
+           get_counter(mzx_world, "LOAD_MENU", 0))
           {
-            // Load game
-            fadein = 0;
-            if(!reload_savegame(mzx_world, curr_sav, &fadein))
+            struct stat file_info;
+
+            if(!stat(curr_sav, &file_info))
             {
-              vquick_fadeout();
-              return;
+              // Load game
+              fadein = 0;
+              if(!reload_savegame(mzx_world, curr_sav, &fadein))
+                break;
+
+              // Reset this
+              src_board = mzx_world->current_board;
+
+              find_player(mzx_world);
+
+              // Swap in starting board
+              load_board_module(src_board);
+              strcpy(mzx_world->real_mod_playing,
+               src_board->mod_playing);
+
+              send_robot_def(mzx_world, 0, LABEL_JUSTLOADED);
+              fadein ^= 1;
             }
-
-            // Reset this
-            src_board = mzx_world->current_board;
-
-            find_player(mzx_world);
-
-            // Swap in starting board
-            load_board_module(src_board);
-            strcpy(mzx_world->real_mod_playing,
-             src_board->mod_playing);
-
-            send_robot_def(mzx_world, 0, 10);
-            fadein ^= 1;
           }
           break;
         }
 
-        // Debug counter editor
         case IKEY_F11:
         {
-          if(debug_counters && editing)
-            debug_counters(mzx_world);
+          // Breakpoint editor
+          if(get_alt_status(keycode_internal))
+          {
+            if(edit_breakpoints && editing)
+              edit_breakpoints(mzx_world);
+          }
+          // Debug counter editor
+          else
+          {
+            if(debug_counters && editing)
+              debug_counters(mzx_world);
+          }
           break;
         }
 
@@ -2077,7 +2200,7 @@ __editor_maybe_static void play_game(struct world *mzx_world)
         {
           int enter_menu_status =
            get_counter(mzx_world, "ENTER_MENU", 0);
-          send_robot_all(mzx_world, "KeyEnter");
+          send_robot_all_def(mzx_world, "KeyEnter");
 
           if(mzx_world->version < 0x0209 || enter_menu_status)
           {
@@ -2102,7 +2225,9 @@ __editor_maybe_static void play_game(struct world *mzx_world)
               update_event_status_delay();
               update_screen();
               key = get_key(keycode_internal);
-            } while(key != IKEY_RETURN);
+            } while(key != IKEY_RETURN && key != IKEY_ESCAPE);
+
+            wait_for_key_release(key);
 
             restore_screen();
 
@@ -2154,7 +2279,12 @@ void title_screen(struct world *mzx_world)
   chdir(current_dir);
 
   if(edit_world && mzx_world->conf.startup_editor)
-    edit_world(mzx_world);
+  {
+    editing = true;
+    set_intro_mesg_timer(0);
+    edit_world(mzx_world, 0);
+    editing = false;
+  }
   else
   {
     if(!stat(curr_file, &file_info))
@@ -2203,6 +2333,7 @@ void title_screen(struct world *mzx_world)
 
     if(key)
     {
+      int reload_curr_world_in_editor = 1;
       switch(key)
       {
 #ifdef CONFIG_HELPSYS
@@ -2242,7 +2373,7 @@ void title_screen(struct world *mzx_world)
         case IKEY_F4:
         case IKEY_r:
         {
-          char save_file_name[64];
+          char save_file_name[MAX_PATH] = { 0 };
 
           // Restore
           m_show();
@@ -2261,11 +2392,7 @@ void title_screen(struct world *mzx_world)
             set_config_from_file(&(mzx_world->conf), "game.cnf");
             chdir(current_dir);
 
-            if(!reload_savegame(mzx_world, save_file_name, &fadein))
-            {
-              vquick_fadeout();
-            }
-            else
+            if(reload_savegame(mzx_world, save_file_name, &fadein))
             {
               src_board = mzx_world->current_board;
               // Swap in starting board
@@ -2280,7 +2407,7 @@ void title_screen(struct world *mzx_world)
               // do not send JUSTENTERED when loading a SAV game from the
               // title screen or when no game is loaded; here we ONLY send
               // JUSTLOADED.
-              send_robot_def(mzx_world, 0, 10);
+              send_robot_def(mzx_world, 0, LABEL_JUSTLOADED);
 
               set_counter(mzx_world, "TIME", src_board->time_limit, 0);
 
@@ -2289,6 +2416,7 @@ void title_screen(struct world *mzx_world)
               mzx_world->player_restart_y = mzx_world->player_y;
               vquick_fadeout();
 
+              update_event_status();
               play_game(mzx_world);
 
               // Done playing- load world again
@@ -2373,11 +2501,11 @@ void title_screen(struct world *mzx_world)
 
               // send both JUSTENTERED and JUSTLOADED respectively; the
               // JUSTLOADED label will take priority if a robot defines it
-              send_robot_def(mzx_world, 0, 11);
-              send_robot_def(mzx_world, 0, 10);
+              send_robot_def(mzx_world, 0, LABEL_JUSTENTERED);
+              send_robot_def(mzx_world, 0, LABEL_JUSTLOADED);
 
               if(strcmp(src_board->mod_playing, "*") &&
-               strcmp(src_board->mod_playing, old_mod_playing))
+               strcasecmp(src_board->mod_playing, old_mod_playing))
               {
                 load_board_module(src_board);
               }
@@ -2411,6 +2539,12 @@ void title_screen(struct world *mzx_world)
                  src_board->mod_playing);
                 set_counter(mzx_world, "TIME", src_board->time_limit, 0);
               }
+              // Whoops, something happened! Make a blank world instead
+              else
+              {
+                clear_world(mzx_world);
+                clear_global_data(mzx_world);
+              }
               vquick_fadeout();
               fadein = 1;
             }
@@ -2434,7 +2568,7 @@ void title_screen(struct world *mzx_world)
             set_music_volume(0);
             if(mzx_world->active)
               volume_module(0);
-            check_for_updates(&mzx_world->conf);
+            check_for_updates(mzx_world, &mzx_world->conf);
             set_sfx_volume(current_sfx_vol);
             set_music_volume(current_music_vol);
             if(mzx_world->active)
@@ -2444,6 +2578,10 @@ void title_screen(struct world *mzx_world)
         }
 
         case IKEY_F8:
+        case IKEY_n:
+          reload_curr_world_in_editor = 0;
+
+        case IKEY_F9:
         case IKEY_e:
         {
           if(edit_world)
@@ -2452,7 +2590,10 @@ void title_screen(struct world *mzx_world)
             clear_sfx_queue();
             vquick_fadeout();
             set_intro_mesg_timer(0);
-            edit_world(mzx_world);
+
+            editing = true;
+            edit_world(mzx_world, reload_curr_world_in_editor);
+            editing = false;
 
             if(curr_file[0])
               load_world_file(mzx_world, curr_file);
@@ -2496,7 +2637,7 @@ void title_screen(struct world *mzx_world)
             // do not send JUSTENTERED when loading a SAV game from the
             // title screen or when no game is loaded; here we ONLY send
             // JUSTLOADED.
-            send_robot_def(mzx_world, 0, 10);
+            send_robot_def(mzx_world, 0, LABEL_JUSTLOADED);
 
             set_counter(mzx_world, "TIME", src_board->time_limit, 0);
 
@@ -2557,7 +2698,7 @@ void title_screen(struct world *mzx_world)
             write_string(main_menu_4, 30, 12, 31, 1);
           if(edit_world)
             write_string(main_menu_5, 30, 13, 31, 1);
-          write_string(main_menu_6, 30, 14, 31, 1);
+          write_string(main_menu_6, 30, 15, 31, 1);
           update_screen();
           m_show();
 
@@ -2566,7 +2707,7 @@ void title_screen(struct world *mzx_world)
             update_event_status_delay();
             update_screen();
             key = get_key(keycode_internal);
-          } while(key != IKEY_RETURN);
+          } while(key != IKEY_RETURN && key != IKEY_ESCAPE);
 
           restore_screen();
           update_screen();
@@ -2610,6 +2751,7 @@ void set_mesg_direct(struct board *src_board, const char *str)
   strncpy(src_board->bottom_mesg, str, ROBOT_MAX_TR - 1);
   src_board->bottom_mesg[ROBOT_MAX_TR - 1] = 0;
   src_board->b_mesg_timer = MESG_TIMEOUT;
+  set_intro_mesg_timer(0);
 }
 
 // Rotate an area
@@ -2886,6 +3028,7 @@ int move_player(struct world *mzx_world, int dir)
     // Not edge
     int d_offset = new_x + (new_y * src_board->board_width);
     enum thing d_id = (enum thing)src_board->level_id[d_offset];
+    enum thing u_id = (enum thing)src_board->level_under_id[d_offset];
     int d_flag = flags[(int)d_id];
 
     if(d_flag & A_SPEC_STOOD)
@@ -2990,9 +3133,9 @@ int move_player(struct world *mzx_world, int dir)
         {
           // Kill/move
           id_remove_top(mzx_world, new_x, new_y);
-          if((d_id != GOOP) &&
-           (!src_board->restart_if_zapped)) // Not onto goop
-          if(!src_board->restart_if_zapped)
+
+          // Not onto goop.. (under is now top)
+          if(u_id != GOOP && !src_board->restart_if_zapped)
           {
             place_player(mzx_world, new_x, new_y, dir);
             return 0;
@@ -3015,7 +3158,7 @@ int move_player(struct world *mzx_world, int dir)
         // Pushable robot needs to be sent the touch label
         if(d_id == ROBOT_PUSHABLE)
           send_robot_def(mzx_world,
-           src_board->level_param[d_offset], 0);
+           src_board->level_param[d_offset], LABEL_TOUCH);
 
         if(!push(mzx_world, player_x, player_y, dir, 0))
         {
@@ -3213,7 +3356,7 @@ int grab_item(struct world *mzx_world, int offset, int dir)
     {
       play_sfx(mzx_world, 48);
       set_mesg(mzx_world, "There is goop in your way!");
-      send_robot_def(mzx_world, 0, 12);
+      send_robot_def(mzx_world, 0, LABEL_GOOPTOUCHED);
       break;
     }
 
@@ -3221,7 +3364,7 @@ int grab_item(struct world *mzx_world, int offset, int dir)
     {
       play_sfx(mzx_world, 16);
       set_mesg(mzx_world, "Energize!");
-      send_robot_def(mzx_world, 0, 2);
+      send_robot_def(mzx_world, 0, LABEL_INVINCO);
       set_counter(mzx_world, "INVINCO", 113, 0);
       remove = 1;
       break;
@@ -3499,7 +3642,7 @@ int grab_item(struct world *mzx_world, int offset, int dir)
       src_board->robot_list[idx]->last_touch_dir =
        int_to_dir(flip_dir(dir));
 
-      send_robot_def(mzx_world, param, 0);
+      send_robot_def(mzx_world, param, LABEL_TOUCH);
       break;
     }
 

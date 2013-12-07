@@ -31,6 +31,8 @@ struct label
   // Point this to the name in the robot
   char *name;
   int position;
+  // Used for zapping.
+  int cmd_position;
   // Set to 1 if zapped
   int zapped;
 };
@@ -57,6 +59,7 @@ struct sensor
 
 struct robot
 {
+  int world_version;
 #ifdef CONFIG_DEBYTECODE
   int program_source_length;
   char *program_source;

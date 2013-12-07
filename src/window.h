@@ -43,7 +43,10 @@ CORE_LIBSPEC int draw_window_box(int x1, int y1, int x2, int y2, int color,
 CORE_LIBSPEC int char_selection(int current);
 
 // Shell for run_dialog() (returns 0 for ok, 1 for cancel, -1 for ESC)
+// Confirm_input is the same but takes an additional label name and input/output str
 CORE_LIBSPEC int confirm(struct world *mzx_world, const char *str);
+CORE_LIBSPEC int confirm_input(struct world *mzx_world, const char *title,
+ const char *label, char *str);
 CORE_LIBSPEC int ask_yes_no(struct world *mzx_world, char *str);
 
 int draw_window_box_ext(int x1, int y1, int x2, int y2, int color,
@@ -88,6 +91,7 @@ struct label_element
 {
   struct element e;
   const char *text;
+  bool respect_colors;
 };
 
 struct box
@@ -165,6 +169,7 @@ struct number_box
   int lower_limit;
   int upper_limit;
   int mult_five;
+  int is_null;
   int *result;
 };
 
@@ -293,8 +298,7 @@ CORE_LIBSPEC struct element *construct_input_box(int x, int y,
 CORE_LIBSPEC int file_manager(struct world *mzx_world,
  const char *const *wildcards, const char *default_ext, char *ret,
  const char *title, int dirs_okay, int allow_new,
- struct element **dialog_ext, int num_ext, int ext_height,
- int allow_dir_change);
+ struct element **dialog_ext, int num_ext, int ext_height);
 #endif // CONFIG_EDITOR
 
 #ifdef CONFIG_HELPSYS

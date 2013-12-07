@@ -79,6 +79,14 @@ __libspec int main(int argc, char *argv[])
   // always possible to get back to it..
   getcwd(current_dir, MAX_PATH);
 
+#ifdef __APPLE__
+  {
+    // Mac .APPs start at / and we don't like that.
+    char *user = getlogin();
+    snprintf(current_dir, MAX_PATH, "/Users/%s", user);
+  }
+#endif // __APPLE__
+
   if(mzx_res_init(argv[0], is_editor()))
     goto err_free_res;
 
@@ -100,14 +108,21 @@ __libspec int main(int argc, char *argv[])
 
   load_editor_config(&mzx_world, &argc, argv);
 
+  init_macros(&mzx_world);
+
   // At this point argv should have all the config options
   // of the form var=value removed, leaving only unparsed
   // parameters. Interpret the first unparsed parameter
   // as a file to load (overriding startup_file etc.)
   if(argc > 1)
-    strncpy(mzx_world.conf.startup_file, argv[1], 256);
+    split_path_filename(argv[1], mzx_world.conf.startup_path, 256,
+     mzx_world.conf.startup_file, 256);
 
-  init_macros(&mzx_world);
+  if(mzx_world.conf.startup_path && strlen(mzx_world.conf.startup_path))
+  {
+    debug("Config: Using '%s' as startup path\n", mzx_world.conf.startup_path);
+    strncpy(current_dir, mzx_world.conf.startup_path, MAX_PATH);
+  }
 
   chdir(current_dir);
 
@@ -170,7 +185,8 @@ err_network_layer_exit:
   network_layer_exit(&mzx_world.conf);
   if(mzx_world.update_done)
     free(mzx_world.update_done);
-  free_extended_macros(&mzx_world);
+  free_config(&mzx_world.conf);
+  free_editor_config(&mzx_world);
 err_free_res:
   mzx_res_free();
   platform_quit();

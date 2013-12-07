@@ -63,7 +63,9 @@ usage() {
 	echo "  --disable-sdl         Disables SDL dependencies and features."
 	echo "  --enable-egl          Enables EGL backend (if SDL disabled)."
 	echo "  --disable-check-alloc Disables memory allocator error handling."
+	echo "  --disable-uthash      Disables hash counter/string lookups."
 	echo "  --enable-debytecode   Enable experimental 'debytecode' transform."
+	echo "  --enable-libsdl2      Enable experimental SDL 2.0 support."
 	echo
 	echo "e.g.: ./config.sh --platform unix --prefix /usr"
 	echo "                  --sysconfdir /etc --disable-x11"
@@ -112,7 +114,9 @@ METER="false"
 SDL="true"
 EGL="false"
 CHECK_ALLOC="true"
+UTHASH="true"
 DEBYTECODE="false"
+LIBSDL2="false"
 
 #
 # User may override above settings
@@ -244,8 +248,14 @@ while [ "$1" != "" ]; do
 	[ "$1" = "--disable-check-alloc" ] && CHECK_ALLOC="false"
 	[ "$1" = "--enable-check-alloc" ]  && CHECK_ALLOC="true"
 
+	[ "$1" = "--enable-uthash" ]  && UTHASH="true"
+	[ "$1" = "--disable-uthash" ] && UTHASH="false"
+
 	[ "$1" = "--enable-debytecode" ]  && DEBYTECODE="true"
 	[ "$1" = "--disable-debytecode" ] && DEBYTECODE="false"
+
+	[ "$1" = "--enable-libsdl2" ]  && LIBSDL2="true"
+	[ "$1" = "--disable-libsdl2" ] && LIBSDL2="false"
 
 	if [ "$1" = "--help" ]; then
 		usage
@@ -271,8 +281,8 @@ if [ "$PLATFORM" = "win32"   -o "$PLATFORM" = "win64" \
   -o "$PLATFORM" = "mingw32" -o "$PLATFORM" = "mingw64" ]; then
 	[ "$PLATFORM" = "win32" -o "$PLATFORM" = "mingw32" ] && ARCHNAME=x86
 	[ "$PLATFORM" = "win64" -o "$PLATFORM" = "mingw64" ] && ARCHNAME=x64
-	[ "$PLATFORM" = "mingw32" ] && MINGWBASE=i586-mingw32msvc-
-	[ "$PLATFORM" = "mingw64" ] && MINGWBASE=amd64-mingw32msvc-
+	[ "$PLATFORM" = "mingw32" ] && MINGWBASE=i686-w64-mingw32-
+	[ "$PLATFORM" = "mingw64" ] && MINGWBASE=x86_64-w64-mingw32-
 	PLATFORM="mingw"
 	echo "#define PLATFORM \"windows-$ARCHNAME\"" > src/config.h
 	echo "SUBPLATFORM=windows-$ARCHNAME"         >> platform.inc
@@ -467,11 +477,10 @@ fi
 #
 if [ "$SDL" = "false" ]; then
 	echo "Force-disabling SDL dependent components:"
-	echo " -> SOFTWARE, OVERLAY, MIKMOD, X11"
+	echo " -> SOFTWARE, OVERLAY, MIKMOD"
 	SOFTWARE="false"
 	OVERLAY="false"
 	MIKMOD="false"
-	X11="false"
 else
 	echo "#define CONFIG_SDL" >> src/config.h
 	echo "BUILD_SDL=1" >> platform.inc
@@ -512,6 +521,9 @@ if [ "$PLATFORM" = "nds" ]; then
 	echo "Force-disabling software renderer on NDS."
 	echo "Building custom NDS renderer."
 	SOFTWARE="false"
+
+    echo "Force-disabling hash tables on NDS."
+    UTHASH="false"
 fi
 
 #
@@ -976,6 +988,16 @@ else
 fi
 
 #
+# Allow use of uthash.h in counter/string lookups, if enabled
+#
+if [ "$UTHASH" = "true" ]; then
+	echo "uthash counter/string lookup enabled."
+	echo "#define CONFIG_UTHASH" >> src/config.h
+else
+	echo "uthash counter/string lookup disabled (using binary search)."
+fi
+
+#
 # Experimental 'debytecode' transformation, if enabled
 #
 if [ "$DEBYTECODE" = "true" ]; then
@@ -984,6 +1006,16 @@ if [ "$DEBYTECODE" = "true" ]; then
 	echo "BUILD_DEBYTECODE=1" >> platform.inc
 else
 	echo "Experimental 'debytecode' transform disabled."
+fi
+
+#
+# Experimental SDL 2.0 support, if enabled
+#
+if [ "$LIBSDL2" = "true" ]; then
+	echo "Experimental SDL 2.0 support enabled."
+	echo "BUILD_LIBSDL2=1" >> platform.inc
+else
+	echo "Experimental SDL 2.0 support disabled."
 fi
 
 echo

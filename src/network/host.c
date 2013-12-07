@@ -121,12 +121,9 @@ struct addrinfo
 
 #endif
 
-#if (defined(__GNUC__) && defined(__WIN64__)) || defined(__amigaos__)
+#if (defined(__GNUC__) && defined(__WIN32__)) || defined(__amigaos__)
 
-#if defined(__amigaos__)
-static
-#endif
-const char *gai_strerror(int errcode)
+static const char *__gai_strerror(int errcode)
 {
   switch(errcode)
   {
@@ -139,7 +136,9 @@ const char *gai_strerror(int errcode)
   }
 }
 
-#endif // (__GNUC__ && __WIN64__) || __amigaos__
+#else
+#define __gai_strerror gai_strerror
+#endif
 
 #if defined(__WIN32__) || defined(__amigaos__)
 
@@ -379,30 +378,30 @@ socksyms;
 
 static const struct dso_syms_map socksyms_map[] =
 {
-  { "accept",                (void **)&socksyms.accept },
-  { "bind",                  (void **)&socksyms.bind },
-  { "closesocket",           (void **)&socksyms.closesocket },
-  { "connect",               (void **)&socksyms.connect },
-  { "gethostbyname",         (void **)&socksyms.gethostbyname },
-  { "htons",                 (void **)&socksyms.htons },
-  { "ioctlsocket",           (void **)&socksyms.ioctlsocket },
-  { "listen",                (void **)&socksyms.listen },
-  { "select",                (void **)&socksyms.select },
-  { "send",                  (void **)&socksyms.send },
-  { "sendto",                (void **)&socksyms.sendto },
-  { "setsockopt",            (void **)&socksyms.setsockopt },
-  { "socket",                (void **)&socksyms.socket },
-  { "recv",                  (void **)&socksyms.recv },
-  { "recvfrom",              (void **)&socksyms.recvfrom },
+  { "accept",                (fn_ptr *)&socksyms.accept },
+  { "bind",                  (fn_ptr *)&socksyms.bind },
+  { "closesocket",           (fn_ptr *)&socksyms.closesocket },
+  { "connect",               (fn_ptr *)&socksyms.connect },
+  { "gethostbyname",         (fn_ptr *)&socksyms.gethostbyname },
+  { "htons",                 (fn_ptr *)&socksyms.htons },
+  { "ioctlsocket",           (fn_ptr *)&socksyms.ioctlsocket },
+  { "listen",                (fn_ptr *)&socksyms.listen },
+  { "select",                (fn_ptr *)&socksyms.select },
+  { "send",                  (fn_ptr *)&socksyms.send },
+  { "sendto",                (fn_ptr *)&socksyms.sendto },
+  { "setsockopt",            (fn_ptr *)&socksyms.setsockopt },
+  { "socket",                (fn_ptr *)&socksyms.socket },
+  { "recv",                  (fn_ptr *)&socksyms.recv },
+  { "recvfrom",              (fn_ptr *)&socksyms.recvfrom },
 
-  { "WSACancelBlockingCall", (void **)&socksyms.WSACancelBlockingCall },
-  { "WSACleanup",            (void **)&socksyms.WSACleanup },
-  { "WSAGetLastError",       (void **)&socksyms.WSAGetLastError },
-  { "WSAStartup",            (void **)&socksyms.WSAStartup },
-  { "__WSAFDIsSet",          (void **)&socksyms.__WSAFDIsSet },
+  { "WSACancelBlockingCall", (fn_ptr *)&socksyms.WSACancelBlockingCall },
+  { "WSACleanup",            (fn_ptr *)&socksyms.WSACleanup },
+  { "WSAGetLastError",       (fn_ptr *)&socksyms.WSAGetLastError },
+  { "WSAStartup",            (fn_ptr *)&socksyms.WSAStartup },
+  { "__WSAFDIsSet",          (fn_ptr *)&socksyms.__WSAFDIsSet },
 
-  { "freeaddrinfo",          (void **)&socksyms.freeaddrinfo },
-  { "getaddrinfo",           (void **)&socksyms.getaddrinfo },
+  { "freeaddrinfo",          (fn_ptr *)&socksyms.freeaddrinfo },
+  { "getaddrinfo",           (fn_ptr *)&socksyms.getaddrinfo },
 
   { NULL, NULL }
 };
@@ -852,7 +851,7 @@ static bool host_address_op(struct host *h, const char *hostname,
   ret = platform_getaddrinfo(hostname, port_str, &hints, &ais);
   if(ret != 0)
   {
-    warn("Failed to look up '%s' (%s)\n", hostname, gai_strerror(ret));
+    warn("Failed to look up '%s' (%s)\n", hostname, __gai_strerror(ret));
     return false;
   }
 
@@ -1225,7 +1224,10 @@ enum host_status host_recv_file(struct host *h, const char *url,
   if(line_len != 15 ||
    strncmp(line, "HTTP/1.", 7) != 0 ||
    strcmp(&line[7 + 1], " 200 OK") != 0)
+  {
+    warn("Invalid status: %s\nFailed for url '%s'\n", line, url);
     return -HOST_HTTP_INVALID_STATUS;
+  }
 
   // Now parse the HTTP headers, extracting only the pertinent fields
 

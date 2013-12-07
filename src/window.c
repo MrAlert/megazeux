@@ -2,6 +2,7 @@
  *
  * Copyright (C) 1996 Greg Janson
  * Copyright (C) 2004 Gilead Kutnick <exophase@adelphia.net>
+ * Copyright (C) 2012 Alice Lauren Rowan <petrifiedrowan@gmail.com>
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License as
@@ -752,6 +753,8 @@ int run_dialog(struct world *mzx_world, struct dialog *di)
           current_element = di->elements[element_under];
           highlight_element(mzx_world, di, element_under);
 
+          wait_for_mouse_release(mouse_press);
+
           new_key = current_element->click_function(mzx_world, di,
            current_element, mouse_press,
            mouse_x - di->x - current_element->x,
@@ -763,13 +766,15 @@ int run_dialog(struct world *mzx_world, struct dialog *di)
         else
 
         if((element_under != -1) &&
-         (current_element->click_function))
+         ((di->elements[element_under])->click_function))
         {
           current_element_num = element_under;
           current_element = di->elements[element_under];
 
           if(current_element->click_function)
           {
+            wait_for_mouse_release(mouse_press);
+
             new_key = current_element->click_function(mzx_world, di,
              current_element, mouse_press,
              mouse_x - di->x - current_element->x,
@@ -799,7 +804,7 @@ int run_dialog(struct world *mzx_world, struct dialog *di)
       current_key =
        current_element->key_function(mzx_world, di,
        current_element, current_key);
-    }
+   }
 
     di->current_element = current_element_num;
 
@@ -864,7 +869,12 @@ int run_dialog(struct world *mzx_world, struct dialog *di)
 
       case IKEY_ESCAPE: // ESC
       {
+        //Only work on press.  Ignore autorepeat.
+        if (get_key_status(keycode_internal, IKEY_ESCAPE) != 1)
+          break;
+
         // Restore screen, set current, and return -1
+        wait_for_key_release(IKEY_ESCAPE);
         pop_context();
         return -1;
       }
@@ -927,7 +937,10 @@ static void draw_label(struct world *mzx_world, struct dialog *di,
   int x = di->x + e->x;
   int y = di->y + e->y;
 
-  color_string_ext(src->text, x, y, DI_TEXT, 256, 16, true);
+  if(src->respect_colors)
+    color_string_ext(src->text, x, y, DI_TEXT, 256, 16, true);
+  else
+    write_string_ext(src->text, x, y, DI_TEXT, true, 256, 16);
 }
 
 static void draw_input_box(struct world *mzx_world, struct dialog *di,
@@ -1026,7 +1039,10 @@ static void draw_number_box(struct world *mzx_world, struct dialog *di,
   {
     // Draw a number
     char num_buffer[32];
-    sprintf(num_buffer, "%d", *(src->result) * increment);
+    if (!src->is_null)
+      sprintf(num_buffer, "%d", *(src->result) * increment);
+    else
+      sprintf(num_buffer, " ");
     fill_line(7, x, y, 32, DI_NUMERIC);
     write_string(num_buffer, x + 6 - (Uint32)strlen(num_buffer), y,
      DI_NUMERIC, 0);
@@ -1065,7 +1081,7 @@ static void draw_list_box(struct world *mzx_world, struct dialog *di,
   for(i = 0; i < num_draw; i++)
   {
     fill_line(choice_length, x, y + i, 32, DI_LIST);
-    strncpy(name_buffer, choices[scroll_offset + i], MAX_NAME_BUFFER - 1);
+    strncpy(name_buffer, choices[scroll_offset + i], draw_width);
     name_buffer[MAX_NAME_BUFFER - 1] = '\0';
     name_buffer[draw_width - 1] = 0;
 
@@ -1206,6 +1222,7 @@ static int key_button(struct world *mzx_world, struct dialog *di,
       // Flag that the dialog is done processing
       di->done = 1;
       di->return_value = src->return_value;
+      wait_for_key_release(key);
       break;
     }
 
@@ -1286,8 +1303,12 @@ static int key_number_box(struct world *mzx_world, struct dialog *di,
     case IKEY_BACKSPACE:
     {
       Sint32 result = current_value / 10;
-      if(result < src->lower_limit)
+      if(result == 0 || result < src->lower_limit)
+      {
         result = src->lower_limit;
+        if (src->upper_limit > 9)
+          src->is_null = 1;
+      }
 
       *(src->result) = result;
     }
@@ -1298,7 +1319,7 @@ static int key_number_box(struct world *mzx_world, struct dialog *di,
 
       if((key >= '0') && (key <= '9'))
       {
-        if(current_value == src->upper_limit)
+        if(current_value == src->upper_limit || src->is_null)
         {
           current_value = (key_char - '0');
         }
@@ -1321,9 +1342,19 @@ static int key_number_box(struct world *mzx_world, struct dialog *di,
         break;
       }
 
+      if (key != IKEY_BACKSPACE &&
+       !get_shift_status(keycode_internal) &&
+       !get_ctrl_status(keycode_internal) &&
+       !get_alt_status(keycode_internal))
+        src->is_null = 0;
+
       return key;
     }
   }
+
+  if (increment_value > 0 && src->is_null)
+    increment_value -= src->lower_limit;
+  src->is_null = 0;
 
   if(increment_value)
   {
@@ -1337,7 +1368,6 @@ static int key_number_box(struct world *mzx_world, struct dialog *di,
 
     *(src->result) = current_value;
   }
-
   return 0;
 }
 
@@ -1757,6 +1787,7 @@ struct element *construct_label(int x, int y, const char *text)
 {
   struct label_element *src = cmalloc(sizeof(struct label_element));
   src->text = text;
+  src->respect_colors = true;
   construct_element(&(src->e), x, y, (int)strlen(text), 1,
    draw_label, NULL, NULL, NULL, NULL);
 
@@ -1819,6 +1850,7 @@ struct element *construct_number_box(int x, int y,
   src->upper_limit = upper_limit;
   src->mult_five = mult_five;
   src->result = result;
+  src->is_null = 0;
   width = (int)strlen(question) + 1;
 
   if((lower_limit == 1) && (upper_limit < 10))
@@ -1882,6 +1914,30 @@ int confirm(struct world *mzx_world, const char *str)
   elements[1] = construct_button(37, 2, "Cancel", 1);
   construct_dialog(&di, str, 10, 9, 60, 5, elements,
    2, 0);
+
+  dialog_result = run_dialog(mzx_world, &di);
+  destruct_dialog(&di);
+
+  return dialog_result;
+}
+
+// Shell for run_dialog()
+int confirm_input(struct world *mzx_world, const char *name,
+ const char *label, char *str)
+{
+  struct dialog di;
+  struct element *elements[3];
+  int dialog_result;
+
+  int input_length = 32;
+
+  // Don't pass anything through that isn't this big plz
+  str[input_length] = '\0';
+
+  elements[0] = construct_input_box(2, 2, label, input_length, 0, str);
+  elements[1] = construct_button(15, 4, "OK", 0);
+  elements[2] = construct_button(37, 4, "Cancel", 1);
+  construct_dialog(&di, name, 11, 8, 57, 7, elements, 3, 0);
 
   dialog_result = run_dialog(mzx_world, &di);
   destruct_dialog(&di);
@@ -1959,6 +2015,7 @@ static int sort_function(const void *dest_str_ptr, const void *src_str_ptr)
 
 // Shell for list_menu() (copies file chosen to ret and returns -1 for ESC)
 // dirs_okay of 1 means drive and directory changing is allowed.
+// dirs_okay of 2 means only subdirectories of the current dir are allowed
 
 #define FILESEL_MAX_ELEMENTS  64
 #define FILESEL_BASE_ELEMENTS 7
@@ -1996,36 +2053,23 @@ static int file_dialog_function(struct world *mzx_world, struct dialog *di,
           {
             case IKEY_r:
             {
-              char *new_name = cmalloc(MAX_PATH);
-              int offset = 56;
-              int width = 29;
-
               if(current_element_num == FILESEL_DIR_LIST)
-              {
-                offset = 0; // no game name
-                width = 14;
-              }
-
-              strncpy(new_name, file_name + offset, MAX_PATH);
-              new_name[MAX_PATH - 1] = '\0';
-
-              intake(mzx_world, new_name, width,
-               src->e.x + di->x, src->e.y + di->y + *(src->result)
-               - src->scroll_offset, DI_ACTIVELIST, 2, 0, NULL, 0,
-               NULL);
-              rename(file_name + offset, new_name);
+                di->return_value = 7;
+              else
+                di->return_value = 5;
 
               di->done = 1;
-              di->return_value = 5;
-
-              free(new_name);
-              return 0;
+              break;
             }
 
             case IKEY_d:
             {
+              if(current_element_num == FILESEL_DIR_LIST)
+                di->return_value = 6;
+              else
+                di->return_value = 4;
+
               di->done = 1;
-              di->return_value = 4;
               break;
             }
 
@@ -2123,13 +2167,12 @@ static int file_dialog_function(struct world *mzx_world, struct dialog *di,
 
 static void remove_files(char *directory_name, int remove_recursively)
 {
+  struct mzx_dir current_dir;
   char *current_dir_name;
   struct stat file_info;
-  dir_t *current_dir;
   char *file_name;
 
-  current_dir = dir_open(directory_name);
-  if(!current_dir)
+  if(!dir_open(&current_dir, directory_name))
     return;
 
   current_dir_name = cmalloc(MAX_PATH);
@@ -2140,7 +2183,7 @@ static void remove_files(char *directory_name, int remove_recursively)
 
   while(1)
   {
-    if(dir_get_next_entry(current_dir, file_name) < 0)
+    if(!dir_get_next_entry(&current_dir, file_name))
       break;
 
     if(stat(file_name, &file_info) < 0)
@@ -2165,15 +2208,16 @@ static void remove_files(char *directory_name, int remove_recursively)
   free(file_name);
   free(current_dir_name);
 
-  dir_close(current_dir);
+  dir_close(&current_dir);
 }
 
 __editor_maybe_static int file_manager(struct world *mzx_world,
  const char *const *wildcards, const char *default_ext, char *ret,
  const char *title, int dirs_okay, int allow_new, struct element **dialog_ext,
- int num_ext, int ext_height, int allow_dir_change)
+ int num_ext, int ext_height)
 {
-  dir_t *current_dir;
+  // dirs_okay -- 0:none -- 1:all -- 2:subdirsonly
+  struct mzx_dir current_dir;
   char *file_name;
   struct stat file_info;
   char *current_dir_name;
@@ -2201,6 +2245,9 @@ __editor_maybe_static int file_manager(struct world *mzx_world,
   int drive_letter_bitmap;
 #endif
 
+  char ret_path[MAX_PATH];
+  char ret_file[MAX_PATH];
+
   // These are stack heavy so put them on the heap
   // This function is not performance sensitive anyway.
   file_name = cmalloc(PATH_BUF_LEN);
@@ -2212,10 +2259,12 @@ __editor_maybe_static int file_manager(struct world *mzx_world,
 
   getcwd(previous_dir_name, MAX_PATH);
 
-  i = (int)get_path(ret, current_dir_name, MAX_PATH);
-  if(i > 0)
-    if(!chdir(current_dir_name))
-      memmove(ret, ret + i + 1, strlen(ret) - i);
+  strcpy(current_dir_name, previous_dir_name);
+
+  // If ret is in a different dir, make that the current dir
+  split_path_filename(ret, ret_path, MAX_PATH, ret_file, MAX_PATH);
+  if(ret_path[0])
+    change_dir_name(current_dir_name, ret_path);
 
   while(return_value == 1)
   {
@@ -2229,22 +2278,29 @@ __editor_maybe_static int file_manager(struct world *mzx_world,
     chosen_file = 0;
     chosen_dir = 0;
 
-    getcwd(current_dir_name, MAX_PATH);
-    current_dir = dir_open(current_dir_name);
+    //FIXME: something relies on being chdired here
+    chdir(current_dir_name);
 
-    while(current_dir)
+    if(!dir_open(&current_dir, current_dir_name))
+      goto skip_dir;
+
+    while(1)
     {
-      if(dir_get_next_entry(current_dir, file_name) < 0)
+      if(!dir_get_next_entry(&current_dir, file_name))
         break;
 
       file_name_length = strlen(file_name);
 
+      // Exclude . and hidden files
       if((stat(file_name, &file_info) >= 0) &&
        ((file_name[0] != '.') || (file_name[1] == '.')))
       {
         if(S_ISDIR(file_info.st_mode))
         {
-          if(dirs_okay)
+          // Exclude .. from base dir in subdirsonly mode
+          if(dirs_okay &&
+           !(dirs_okay == 2 && !strcmp(file_name, "..") &&
+             !strcmp(current_dir_name, previous_dir_name) ))
           {
             dir_list[num_dirs] = cmalloc(file_name_length + 1);
             strncpy(dir_list[num_dirs], file_name, file_name_length);
@@ -2252,7 +2308,7 @@ __editor_maybe_static int file_manager(struct world *mzx_world,
             num_dirs++;
           }
         }
-        else
+        else if(S_ISREG(file_info.st_mode))
         {
           // Must match one of the wildcards, also ignore the .
           if(file_name_length >= 4)
@@ -2272,20 +2328,28 @@ __editor_maybe_static int file_manager(struct world *mzx_world,
 
                 if(!strcasecmp(file_name + file_name_length - 4, ".mzx"))
                 {
-                  FILE *mzx_file = fopen(file_name, "rb");
+                  FILE *mzx_file = fopen_unsafe(file_name, "rb");
 
                   memset(file_list[num_files], ' ', 55);
                   strncpy(file_list[num_files], file_name, file_name_length);
                   file_list[num_files][file_name_length] = ' ';
+                  // Display names that are too long with ...
+                  if(file_name_length > 29)
+                    strncpy(file_list[num_files] + 26, "... ", 4);
+
                   fread(file_list[num_files] + 30, 1, 24, mzx_file);
-                  file_list[num_files][55] = 0;
                   fclose(mzx_file);
                 }
                 else
                 {
                   strncpy(file_list[num_files], file_name, file_name_length);
+                  // Display names that are too long with ...
+                  if(file_name_length > 55)
+                    strncpy(file_list[num_files] + 52, "...", 3);
+
                   file_list[num_files][file_name_length] = '\0';
                 }
+                file_list[num_files][55] = 0;
                 strncpy(file_list[num_files] + 56, file_name,
                  file_name_length);
                 (file_list[num_files] + 56)[file_name_length] = '\0';
@@ -2317,13 +2381,16 @@ __editor_maybe_static int file_manager(struct world *mzx_world,
       }
     }
 
-    dir_close(current_dir);
+    dir_close(&current_dir);
+skip_dir:
+
+    chdir(previous_dir_name);
 
     qsort(file_list, num_files, sizeof(char *), sort_function);
     qsort(dir_list, num_dirs, sizeof(char *), sort_function);
 
 #ifdef __WIN32__
-    if(dirs_okay)
+    if(dirs_okay == 1)
     {
       drive_letter_bitmap = GetLogicalDrives();
 
@@ -2350,7 +2417,7 @@ __editor_maybe_static int file_manager(struct world *mzx_world,
 #endif
 
 #ifdef CONFIG_WII
-    if(dirs_okay)
+    if(dirs_okay == 1)
     {
       for(i = 0; i < STD_MAX; i++)
       {
@@ -2389,6 +2456,11 @@ __editor_maybe_static int file_manager(struct world *mzx_world,
        current_dir_length + 1);
     }
 
+    // Make ret relative for the display.
+    split_path_filename(ret, ret_path, MAX_PATH, ret_file, MAX_PATH);
+    strcpy(ret, ret_file);
+    ret[55] = '\0'; // Just in case
+
     elements[FILESEL_FILE_LIST] =
      construct_list_box(2, 2, (const char **)file_list, num_files,
      list_length, 55, 1, &chosen_file, true);
@@ -2419,56 +2491,83 @@ __editor_maybe_static int file_manager(struct world *mzx_world,
 
     dialog_result = run_dialog(mzx_world, &di);
 
+    // If there's a path on ret, change to it.  Make ret absolute.
     switch(dialog_result)
     {
+      case 0:
+      case 1:
+      case 4:
+      {
+        if(ret[0] && (ret[strlen(ret) - 1] == ':'))
+          strcat(ret, DIR_SEPARATOR);
+
+        split_path_filename(ret, ret_path, MAX_PATH, ret_file, MAX_PATH);
+        if(ret_path[0])
+          change_dir_name(current_dir_name, ret_path);
+
+        if(ret_file[0])
+          snprintf(ret, MAX_PATH, "%s%s%s",
+           current_dir_name, DIR_SEPARATOR, ret_file);
+
+      }
+    }
+
+    ret[MAX_PATH - 1] = 0;
+
+    switch(dialog_result)
+    {
+      // Pressed Backspace
       case -2:
       {
-        if(dirs_okay)
-          chdir("..");
-
+        change_dir_name(current_dir_name, "..");
         break;
       }
 
+      // Pressed Escape
       case -1:
       {
         return_value = -1;
         break;
       }
 
+      // Entered File/Pressed Okay
       case 0:
       case 1:
       {
         int stat_result;
-        char *path;
+
+        if(!ret_file[0])
+          break;
+
+        // Unfortunately, ret isn't reliable when the file name is 55+ chars,
+        // so if the focus is directly on the list and they don't match, use
+        // the complete name
+        if(di.current_element == FILESEL_FILE_LIST &&
+         strcmp(ret_file, file_list[chosen_file] + 56))
+          snprintf(ret, MAX_PATH, "%s%s%s",
+           current_dir_name, DIR_SEPARATOR, file_list[chosen_file] + 56);
 
         if(default_ext)
           add_ext(ret, default_ext);
 
-        path = cmalloc(MAX_PATH);
-        get_path(ret, path, MAX_PATH);
         stat_result = stat(ret, &file_info);
 
+        // It's actually a dir, oops!
         if((stat_result >= 0) && S_ISDIR(file_info.st_mode))
         {
-          chdir(ret);
-          free(path);
+          change_dir_name(current_dir_name, ret_file);
+          strcpy(ret, "");
           break;
         }
 
+        // We're creating a new file
         if(allow_new)
         {
-          if(path[0])
-          {
-            size_t path_len = strlen(path);
-            chdir(path);
-            memmove(ret, ret + path_len + 1, strlen(ret) - path_len);
-          }
-          else
-
+          // File Exists
           if((stat_result >= 0) && (allow_new == 1))
           {
             char confirm_string[512];
-            sprintf(confirm_string, "%s already exists, overwrite?", ret);
+            sprintf(confirm_string, "%s already exists, overwrite?", ret_file);
             if(!ask_yes_no(mzx_world, confirm_string))
               return_value = 0;
           }
@@ -2480,60 +2579,48 @@ __editor_maybe_static int file_manager(struct world *mzx_world,
         }
         else
 
+        // It's a file, open it
         if(stat_result >= 0)
-        {
-          if(path[0])
-            chdir(path);
-
           return_value = 0;
-        }
         else
-        {
           ret[0] = 0;
-        }
 
-        free(path);
         break;
       }
 
+      // Selected a directory from the list
       case 2:
       {
-        chdir(dir_list[chosen_dir]);
+        if(dir_list && dir_list[chosen_dir])
+          change_dir_name(current_dir_name, dir_list[chosen_dir]);
+
         break;
       }
 
+      // Create a new directory
       case 3:
       {
-        struct element *b_elements[3];
-        int b_dialog_result;
         char *new_name;
-        struct dialog b_di;
+        char full_name[MAX_PATH];
 
         new_name = cmalloc(MAX_PATH);
         new_name[0] = 0;
 
-        b_elements[0] = construct_input_box(2, 2,
-         "New directory name: ", 32, 0, new_name);
-        b_elements[1] = construct_button(15, 4, "OK", 0);
-        b_elements[2] = construct_button(37, 4, "Cancel", -1);
-
-        construct_dialog(&b_di, "Create New Directory",
-         11, 8, 57, 7, b_elements, 3, 0);
-
-        b_dialog_result = run_dialog(mzx_world, &b_di);
-        destruct_dialog(&b_di);
-
-        if(!b_dialog_result)
+        if(!confirm_input(mzx_world, "Create New Directory",
+         "New directory name:", new_name))
         {
-          if(stat(new_name, &file_info) < 0)
+          snprintf(full_name, MAX_PATH, "%s%s%s",
+            current_dir_name, DIR_SEPARATOR, new_name);
+
+          if(stat(full_name, &file_info) < 0)
           {
-            mkdir(new_name, 0777);
+            mkdir(full_name, 0777);
           }
           else
           {
             char error_str[512];
-            sprintf(error_str, "%s already exists.", ret);
-            error(error_str, 2, 4, 0x0000);
+            sprintf(error_str, "%s already exists.", new_name);
+            error(error_str, 1, 8, 0x0000);
           }
         }
 
@@ -2541,16 +2628,17 @@ __editor_maybe_static int file_manager(struct world *mzx_world,
         break;
       }
 
+      // Delete file
       case 4:
       {
-        if((stat(ret, &file_info) >= 0) && strcmp(ret, "..") &&
-         strcmp(ret, "."))
+        if((stat(ret, &file_info) >= 0) &&
+         strcmp(ret, "..") && strcmp(ret, "."))
         {
           char *confirm_string;
 
           confirm_string = cmalloc(MAX_PATH);
           snprintf(confirm_string, MAX_PATH,
-           "Delete %s - are you sure?", ret);
+           "Delete %s - are you sure?", ret_file);
 
           if(!confirm(mzx_world, confirm_string))
             unlink(ret);
@@ -2560,23 +2648,51 @@ __editor_maybe_static int file_manager(struct world *mzx_world,
         break;
       }
 
+      // Rename file
       case 5:
       {
+        char *old_path = cmalloc(MAX_PATH);
+        char *new_path = cmalloc(MAX_PATH);
+        char *new_name = cmalloc(MAX_PATH);
+
+        strncpy(new_name, file_list[chosen_file] + 56, MAX_PATH);
+
+        if(!confirm_input(mzx_world, "Rename File", "New file name:", new_name))
+        {
+          snprintf(old_path, MAX_PATH, "%s%s%s", current_dir_name,
+           DIR_SEPARATOR, file_list[chosen_file] + 56);
+          snprintf(new_path, MAX_PATH, "%s%s%s", current_dir_name,
+           DIR_SEPARATOR, new_name);
+
+          if(strcmp(old_path, new_path))
+            if(rename(old_path, new_path))
+              error("File rename failed.", 0, 8, 0x0000);
+
+        }
+
+        free(old_path);
+        free(new_path);
+        free(new_name);
         break;
       }
 
+      // Delete directory
       case 6:
       {
-        char *file_name_ch = dir_list[chosen_dir];
-        if(strcmp(file_name_ch, ".."))
+        if(strcmp(dir_list[chosen_dir], "..") &&
+         strcmp(dir_list[chosen_dir], ".") && dir_list[chosen_dir][1] != ':')
         {
           char confirm_string[70];
           snprintf(confirm_string, 70, "Delete %s: are you sure?",
-           file_name_ch);
+           dir_list[chosen_dir]);
           confirm_string[69] = 0;
 
           if(!confirm(mzx_world, confirm_string))
           {
+            char file_name_ch[MAX_PATH];
+            snprintf(file_name_ch, MAX_PATH, "%s%s%s",
+             current_dir_name, DIR_SEPARATOR, dir_list[chosen_dir]);
+
             if(!ask_yes_no(mzx_world,
              (char *)"Delete subdirectories recursively?"))
             {
@@ -2590,6 +2706,60 @@ __editor_maybe_static int file_manager(struct world *mzx_world,
           }
         }
         break;
+      }
+
+      // Rename directory
+      // I didn't just copy the rename file code and change a couple of things, no siree
+      case 7:
+      {
+        if(strcmp(dir_list[chosen_dir], "..") &&
+         strcmp(dir_list[chosen_dir], ".") && dir_list[chosen_dir][1] != ':')
+        {
+          char *old_path = cmalloc(MAX_PATH);
+          char *new_path = cmalloc(MAX_PATH);
+          char *new_name = cmalloc(MAX_PATH);
+
+          strncpy(new_name, dir_list[chosen_dir], MAX_PATH);
+
+          if(!confirm_input(mzx_world, "Rename Directory", "New directory name:", new_name))
+          {
+            snprintf(old_path, MAX_PATH, "%s%s%s", current_dir_name,
+             DIR_SEPARATOR, dir_list[chosen_dir]);
+            snprintf(new_path, MAX_PATH, "%s%s%s", current_dir_name,
+             DIR_SEPARATOR, new_name);
+
+            if(strcmp(old_path, new_path))
+              if(rename(old_path, new_path))
+                error("Directory rename failed.", 0, 8, 0x0000);
+
+          }
+
+          free(old_path);
+          free(new_path);
+          free(new_name);
+        }
+        break;
+      }
+    }
+
+    // No unallowed paths kthx
+    if(dirs_okay != 1)
+    {
+      // If the base path isn't part of the return path, or if there's an
+      // unallowed subdirectory.
+      if(strncmp(previous_dir_name, current_dir_name, strlen(previous_dir_name)) ||
+         (!dirs_okay &&
+          strstr(current_dir_name + strlen(previous_dir_name), DIR_SEPARATOR)))
+      {
+        debug("some1 dropped da ball!!!!!!11\n");
+        strcpy(current_dir_name, previous_dir_name);
+        return_value = 1;
+        ret[0] = 0;
+      }
+      else
+      {
+        strcpy(ret_file, ret + strlen(previous_dir_name) + 1);
+        strcpy(ret, ret_file);
       }
     }
 
@@ -2623,29 +2793,6 @@ __editor_maybe_static int file_manager(struct world *mzx_world,
   if(return_value == -1)
   {
     ret[0] = 0;
-    chdir(previous_dir_name);
-  }
-
-  if(!allow_dir_change)
-  {
-    getcwd(current_dir_name, MAX_PATH);
-    if(strcmp(previous_dir_name, current_dir_name))
-    {
-      char *ret_buffer;
-
-      ret_buffer = cmalloc(MAX_PATH);
-      strncpy(ret_buffer, ret, MAX_PATH - 1);
-      ret_buffer[MAX_PATH - 1] = '\0';
-
-#ifdef __WIN32__
-      snprintf(ret, MAX_PATH, "%s\\%s", current_dir_name, ret_buffer);
-#else
-      snprintf(ret, MAX_PATH, "%s/%s", current_dir_name, ret_buffer);
-#endif
-
-      chdir(previous_dir_name);
-      free(ret_buffer);
-    }
   }
 
   free(previous_dir_name);
@@ -2659,14 +2806,14 @@ int choose_file_ch(struct world *mzx_world, const char *const *wildcards,
  char *ret, const char *title, int dirs_okay)
 {
   return file_manager(mzx_world, wildcards, NULL, ret, title, dirs_okay,
-   0, NULL, 0, 0, 1);
+   0, NULL, 0, 0);
 }
 
 int new_file(struct world *mzx_world, const char *const *wildcards,
  const char *default_ext, char *ret, const char *title, int dirs_okay)
 {
   return file_manager(mzx_world, wildcards, default_ext, ret, title, dirs_okay,
-   1, NULL, 0, 0, 0);
+   1, NULL, 0, 0);
 }
 
 #if defined(CONFIG_UPDATER) || defined(CONFIG_LOADSAVE_METER)
