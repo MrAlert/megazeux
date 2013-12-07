@@ -11,8 +11,8 @@ STRIP   = ${DJGPPBASE}strip --strip-unneeded
 
 BINEXT = .exe
 
-LIBPNG_CFLAGS  = -I${PREFIX}/include/libpng14
-LIBPNG_LDFLAGS = -lpng14 -lz
+LIBPNG_CFLAGS  = -I${PREFIX}/include/libpng16
+LIBPNG_LDFLAGS = -lpng16 -lz
 
 EXTRA_INCLUDES = -Iarch/djgpp/include
 
